@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from tkinter import filedialog
 
 class ephys:
     '''
@@ -9,8 +10,10 @@ class ephys:
     Assumes a basic file structure of path_to_data/animal/YYYY-MM-DD/ for each session
 
     Usage:
-        # Initialize the class with animal name, recording date, and recording type.
-        obj = ephys('r0001', '2023-01-01', 'nexus')
+        # Initialize the class with recording type and optional path to session.
+        obj = ephys('nexus', 'path/to/recording/data/animalID/date')
+        obj = ephys('nexus') will prompt a box to select the recording folder
+        
 
         # Load metadata for the first trial.
         obj.load_metadata(0)
@@ -50,7 +53,7 @@ class ephys:
         numpy, pandas
     '''
 
-    def __init__(self, animal, date, recording_type):
+    def __init__(self, recording_type, path = None):
         """
         Initializes the ephys object with given animal, date, and recording type.
 
@@ -61,9 +64,16 @@ class ephys:
         """
         self.recording_type = recording_type
         
-        self.base_path = '/home/isabella/Documents/isabella/jake/recording_data' #Hard-coded for now
-        self.recording_path = f'{self.base_path}/{animal}/{date}'
-        self.sorting_path = f'{self.recording_path}/{date[2:4]}{date[5:7]}{date[8:10]}_sorting_ks2_custom'
+        if path:
+            self.recording_path = path
+        else:
+            print('Locate path to recording session')
+            self.recording_path = filedialog.askdirectory()
+        
+        self.date = self.recording_path.split('/')[-1]
+        self.animal = self.recording_path.split('/')[-2]
+
+        self.sorting_path = f'{self.recording_path}/{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}_sorting_ks2_custom'
         
         # Load session information from session.csv which is within the sorting folder as dataframe
         self.session = pd.read_csv(f'{self.sorting_path}/session.csv', index_col = 0)
@@ -171,7 +181,7 @@ class ephys:
                   'led_pix': led_pix.T}
 
         # Postprocess posdata and return to self as dict
-        from postprocess_pos_data import process_position_data
+        from postprocessing.postprocess_pos_data import process_position_data
 
         xy_pos, led_pos, led_pix, speed, direction, direction_disp = process_position_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
 
