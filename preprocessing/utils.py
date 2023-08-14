@@ -136,9 +136,9 @@ def preprocess(recording, recording_name, base_folder, electrode_type, num_chann
 
     #Load probe
     elif electrode_type == 'probe' or electrode_type == '32 ch four shanks':
-        probe = read_prb('/home/isabella/Documents/isabella/klusta_testdata/spikeinterface/probes/4x8_buzsaki_oneshank.prb') 
+        probe = read_prb('probes/4x8_buzsaki_oneshank.prb') 
     elif electrode_type == '5x12_buz':
-        probe = read_prb('/home/isabella/Documents/isabella/klusta_testdata/spikeinterface/probes/5x12-16_buz.prb')
+        probe = read_prb('probes/5x12-16_buz.prb')
         
     else:
         raise ValueError('Electrode type is set wrong, please set to either "probe" or "tetrode"')
