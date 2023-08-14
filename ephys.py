@@ -274,17 +274,22 @@ class ephys:
         # Convert trial_offsets to the same time unit as spike_times (assuming spike_times is in microseconds)
         try:
             trial_offsets = (np.array(self.trial_offsets) * self.metadata[0]['sampling_rate']).astype(int)
-            # Determine the trial for each spike
-            spike_trial = np.digitize(spike_times.flatten(), trial_offsets) - 1
             
-            # Populate spike_data
-            self.spike_data = {
-                'spike_times': spike_times,
-                'spike_clusters': spike_clusters,
-                'cluster_quality': cluster_quality,
-                'spike_trial': spike_trial
-
-            }
         except TypeError:
-            print('Sampling rate unknown - load some metadata first. Try: obj.load_metadata(0)')
+            import warnings
+            warnings.warn('Sampling rate unknown - load some metadata first. Using 48 kHz sampling rate as default. Try: obj.load_metadata(0)')
+            trial_offsets = (np.array(self.trial_offsets) * 48000).astype(int)
+            
+        # Determine the trial for each spike
+        spike_trial = np.digitize(spike_times.flatten(), trial_offsets) - 1
+
+        # Populate spike_data
+        self.spike_data = {
+            'spike_times': spike_times,
+            'spike_clusters': spike_clusters,
+            'cluster_quality': cluster_quality,
+            'spike_trial': spike_trial
+
+        }
+
 
