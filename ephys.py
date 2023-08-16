@@ -207,7 +207,7 @@ class ephys:
                 'direction_from_displacement': direction_disp
             }
 
-    def load_lfp(self, trial_iterator, sampling_rate, start_time, end_time, channels):
+    def load_lfp(self, trial_iterator, sampling_rate, start_time, end_time, channels, bandpass_filter = False):
         """
         Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
 
@@ -226,8 +226,13 @@ class ephys:
         path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
         recording = read_axona(path)
 
+        # Resample
         recording = spre.resample(recording, sampling_rate)
-        recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+        
+        if bandpass_filter:
+            # Bandpass filter
+            recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+
         lfp_data = recording.get_traces(start_frame = start_time*sampling_rate, end_frame = end_time*sampling_rate, channel_ids = channels)
         lfp_timestamps = recording.get_times()[start_time*sampling_rate:end_time*sampling_rate]
 
@@ -285,11 +290,12 @@ class ephys:
         
         ### Add a label for which behavioural trial each included spike is from
         
-        # Convert trial_offsets to the same time unit as spike_times (assuming spike_times is in microseconds)
-        trial_offsets = (np.array(self.trial_offsets) * sampling_rate).astype(int)
+        # Convert spike times into seconds
+        spike_times = np.divide(spike_times, sampling_rate)
             
         # Determine the trial for each spike
-        spike_trial = np.digitize(spike_times.flatten(), trial_offsets) - 1
+        spike_trial = np.digitize(spike_times.flatten(), self.trial_offsets) - 1
+        
 
         # Populate spike_data
         self.spike_data = {
