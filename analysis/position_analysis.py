@@ -8,9 +8,12 @@ def assign_sectors(xy_positions):
     min_y = np.nanmin(xy_positions.iloc[:, 1])
     max_y = np.nanmax(xy_positions.iloc[:, 1])
 
-    # Check if the input arguments are valid
+    # Check if the input arguments are valid, try transposing array if not
     if xy_positions.shape[1] != 2:
-        raise ValueError('Invalid input arguments.')
+        xy_positions = xy_positions.T
+        
+        if xy_positions.shape[1] != 2:
+            raise ValueError('Invalid input arguments.')
 
     # Define the grid dimensions
     num_cols = 4
