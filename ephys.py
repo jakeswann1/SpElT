@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from tkinter import filedialog
 
+from preprocessing.utils import gs_to_df
+
 class ephys:
     '''
     A class to manage ephys data, including metadata, position, LFP, and spike data recorded from (currently): 
@@ -62,10 +64,16 @@ class ephys:
             print('Locate path to recording session')
             self.recording_path = filedialog.askdirectory()
         
+        # Get date and animal ID from path
         self.date = self.recording_path.split('/')[-1]
+        self.date_short = f'{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}'
         self.animal = self.recording_path.split('/')[-2]
+        
+        # Get age from Google Sheet
+        df = gs_to_df('https://docs.google.com/spreadsheets/d/1_Xs5i-rHNTywV-WuQ8-TZliSjTxQCCqGWOD2AL_LIq0/edit#gid=0')
+        self.age = df['Age'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
 
-        self.sorting_path = f'{self.recording_path}/{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}_sorting_ks2_custom'
+        self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks2_custom'
         
         # Load session information from session.csv which is within the sorting folder as dataframe
         self.session = pd.read_csv(f'{self.sorting_path}/session.csv', index_col = 0)
@@ -126,88 +134,93 @@ class ephys:
             #Populate basic metdata       
             self.metadata[trial_iterator] = setHeader
 
-    def load_pos(self, trial_iterator):
+    def load_pos(self, trial_iterator, reload_flag = False):
         """
-        Loads the position data for a specified trial. Currently only from Dacq .pos files
+        Loads  and postprocesses the position data for a specified trial. Currently only from Dacq .pos files
 
         Args:
             trial_iterator (int): The index of the trial for which position data is to be loaded.
 
         Populates:
             self.pos_data (list): A list that stores position data for each trial. The position data for the specified trial is added at the given index.
-        """        
-        # Get path of trial to load
-        path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
-        
-        if self.recording_type == 'nexus':
-            # Load position data from DACQ files
+        """  
+        # Check if position data is already loaded for session:
+        if reload_flag == False and self.pos_data[trial_iterator] != None:
+            print(f'Position data already loaded for trial {trial_iterator}')
+        else:
 
-            print(f'Loading pos file: {path}.pos')
+            # Get path of trial to load
+            path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
 
-            # Read position data from csv file (faster)
-            data = pd.read_csv(f'{path}_pos.csv', index_col = 0).T
+            if self.recording_type == 'nexus':
+                # Load position data from DACQ files
 
-            # Read header from pos file into dictionary
-            with open(f'{path}.pos', 'rb') as fid:
-                posHeader = {}
+                print(f'Loading pos file: {path}.pos')
 
-                # Read the lines of the file up to the specified number (27 in this case) and write into dict
-                for _ in range(27):
-                    line = fid.readline()
-                    if not line:
-                        break
-                    elements = line.decode().strip().split()
-                    posHeader[elements[0]] = ' '.join(elements[1:])
+                # Read position data from csv file (faster)
+                data = pd.read_csv(f'{path}_pos.csv', index_col = 0).T
 
-            # Extract LED position data and tracked pixel size data
-            led_pos = data.loc[:, ['X1', 'Y1', 'X2', 'Y2']]
-            led_pix = data.loc[:, ['Pixels LED 1', 'Pixels LED 2']]
+                # Read header from pos file into dictionary
+                with open(f'{path}.pos', 'rb') as fid:
+                    posHeader = {}
 
-            # Set missing values to NaN
-            led_pos[led_pos == 1023] = np.nan
-            led_pix[led_pix == 1023] = np.nan
+                    # Read the lines of the file up to the specified number (27 in this case) and write into dict
+                    for _ in range(27):
+                        line = fid.readline()
+                        if not line:
+                            break
+                        elements = line.decode().strip().split()
+                        posHeader[elements[0]] = ' '.join(elements[1:])
 
-            ## Scale pos data to specific PPM 
-            # Currently hard coded to 400 PPM
-            realPPM = int(posHeader['pixels_per_metre'])
-            posHeader['scaled_ppm'] = 400
-            goalPPM = 400
+                # Extract LED position data and tracked pixel size data
+                led_pos = data.loc[:, ['X1', 'Y1', 'X2', 'Y2']]
+                led_pix = data.loc[:, ['Pixels LED 1', 'Pixels LED 2']]
 
-            scale_fact = goalPPM / realPPM
+                # Set missing values to NaN
+                led_pos[led_pos == 1023] = np.nan
+                led_pix[led_pix == 1023] = np.nan
 
-            # Scale area boundaries in place
-            posHeader['min_x'] = int(posHeader['min_x']) * scale_fact
-            posHeader['max_x'] = int(posHeader['max_x']) * scale_fact
-            posHeader['min_y'] = int(posHeader['min_y']) * scale_fact
-            posHeader['max_y'] = int(posHeader['max_y']) * scale_fact
+                ## Scale pos data to specific PPM 
+                # Currently hard coded to 400 PPM
+                realPPM = int(posHeader['pixels_per_metre'])
+                posHeader['scaled_ppm'] = 400
+                goalPPM = 400
 
-            # Scale pos data in place
-            led_pos['X1'] *= scale_fact
-            led_pos['X2'] *= scale_fact
-            led_pos['Y1'] *= scale_fact
-            led_pos['Y2'] *= scale_fact
+                scale_fact = goalPPM / realPPM
 
-            # Collect header and data into a dict
-            raw_pos_data = {'header': posHeader,
-                      'led_pos': led_pos.T,
-                      'led_pix': led_pix.T}
+                # Scale area boundaries in place
+                posHeader['min_x'] = int(posHeader['min_x']) * scale_fact
+                posHeader['max_x'] = int(posHeader['max_x']) * scale_fact
+                posHeader['min_y'] = int(posHeader['min_y']) * scale_fact
+                posHeader['max_y'] = int(posHeader['max_y']) * scale_fact
 
-            # Postprocess posdata and return to self as dict
-            from postprocessing.postprocess_pos_data import process_position_data
+                # Scale pos data in place
+                led_pos['X1'] *= scale_fact
+                led_pos['X2'] *= scale_fact
+                led_pos['Y1'] *= scale_fact
+                led_pos['Y2'] *= scale_fact
 
-            xy_pos, led_pos, led_pix, speed, direction, direction_disp = process_position_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
+                # Collect header and data into a dict
+                raw_pos_data = {'header': posHeader,
+                          'led_pos': led_pos.T,
+                          'led_pix': led_pix.T}
 
-            # Populate processed pos data
-            self.pos_data[trial_iterator] = {
-                'xy_position': xy_pos,
-                'led_positions': led_pos,
-                'led_pixel_size': led_pix,
-                'speed': speed,
-                'direction': direction,
-                'direction_from_displacement': direction_disp
-            }
+                # Postprocess posdata and return to self as dict
+                from postprocessing.postprocess_pos_data import process_position_data
 
-    def load_lfp(self, trial_iterator, sampling_rate, start_time, end_time, channels, bandpass_filter = False):
+                xy_pos, led_pos, led_pix, speed, direction, direction_disp = process_position_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
+
+                # Populate processed pos data
+                self.pos_data[trial_iterator] = {
+                    'xy_position': xy_pos,
+                    'led_positions': led_pos,
+                    'led_pixel_size': led_pix,
+                    'speed': speed,
+                    'direction': direction,
+                    'direction_from_displacement': direction_disp
+                }
+
+    def load_lfp(self, trial_iterator, sampling_rate, start_time, end_time, channels, reload_flag = False, bandpass_filter = False):
         """
         Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
 
@@ -223,24 +236,30 @@ class ephys:
         """        
         from spikeinterface.extractors import read_axona
         import spikeinterface.preprocessing as spre
-        path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
-        recording = read_axona(path)
-
-        # Resample
-        recording = spre.resample(recording, sampling_rate)
         
-        if bandpass_filter:
-            # Bandpass filter
-            recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+        # Check if LFP is already loaded for session:
+        if reload_flag == False and self.lfp_data[trial_iterator] != None:
+                print(f'LFP data already loaded for trial {trial_iterator}')
+                
+        else:
+            path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
+            recording = read_axona(path)
 
-        lfp_data = recording.get_traces(start_frame = start_time*sampling_rate, end_frame = end_time*sampling_rate, channel_ids = channels)
-        lfp_timestamps = recording.get_times()[start_time*sampling_rate:end_time*sampling_rate]
+            # Resample
+            recording = spre.resample(recording, sampling_rate)
 
-        self.lfp_data[trial_iterator] = {
-        'data': lfp_data,
-        'timestamps': lfp_timestamps,
-        'sampling_rate': sampling_rate
-        }
+            if bandpass_filter:
+                # Bandpass filter
+                recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+
+            lfp_data = recording.get_traces(start_frame = start_time*sampling_rate, end_frame = end_time*sampling_rate, channel_ids = channels)
+            lfp_timestamps = recording.get_times()[start_time*sampling_rate:end_time*sampling_rate]
+
+            self.lfp_data[trial_iterator] = {
+            'data': lfp_data,
+            'timestamps': lfp_timestamps,
+            'sampling_rate': sampling_rate
+            }
         
         
     def load_spikes(self, quality_to_load = None):
