@@ -38,6 +38,40 @@ def select_spikes_by_trial(spike_data, trials, trial_offsets):
     
     return result
 
+# Function to transform the spike data dictionary
+def transform_spike_data(spike_data_dict):
+    """
+    Transforms a dictionary containing sub-dictionaries of spike times and spike clusters
+    into a dictionary where each sub-dictionary contains spike times organized by spike clusters.
+    
+    Parameters:
+    - spike_data_dict: dict
+        The original dictionary containing sub-dictionaries with keys 'spike_times' and 'spike_clusters'.
+        
+    Returns:
+    - transformed_dict: dict
+        Transformed dictionary where each sub-dictionary contains spike times organized by spike clusters.
+    """
+    transformed_dict = {}
+    
+    for key, sub_dict in spike_data_dict.items():
+        # Extract spike times and clusters from the sub-dictionary
+        spike_times = sub_dict['spike_times'].flatten()  # Flattening the array for easier indexing
+        spike_clusters = sub_dict['spike_clusters']
+        
+        # Initialize an empty dictionary to store spike times by cluster
+        transformed_sub_dict = {}
+        
+        # Iterate through each unique cluster and collect corresponding spike times
+        for cluster in np.unique(spike_clusters):
+            cluster_spike_times = spike_times[spike_clusters == cluster]
+            transformed_sub_dict[cluster] = cluster_spike_times
+            
+        # Store the transformed sub-dictionary in the main dictionary
+        transformed_dict[key] = transformed_sub_dict
+    
+    return transformed_dict
+
 from scipy.signal import firwin, filtfilt, hilbert
 
 def get_theta_phase(lfp, spike_times, sampling_rate, peakFreq, filtHalfBandWidth=2, powerThresh=5):
