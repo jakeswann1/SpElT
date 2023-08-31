@@ -134,91 +134,106 @@ class ephys:
             #Populate basic metdata       
             self.metadata[trial_iterator] = setHeader
 
-    def load_pos(self, trial_iterator, reload_flag = False):
+    def load_pos(self, trial_list, reload_flag = False):
         """
         Loads  and postprocesses the position data for a specified trial. Currently only from Dacq .pos files
 
         Args:
-            trial_iterator (int): The index of the trial for which position data is to be loaded.
+            trial_iterator (int or array): The index of the trial for which position data is to be loaded.
 
         Populates:
             self.pos_data (list): A list that stores position data for each trial. The position data for the specified trial is added at the given index.
         """  
-        # Check if position data is already loaded for session:
-        if reload_flag == False and self.pos_data[trial_iterator] != None:
-            print(f'Position data already loaded for trial {trial_iterator}')
-        else:
+        # Deal with int trial_iterator
+        if isinstance(trial_list, int):
+            trial_list = [trial_list]
+            
+        for trial_iterator in trial_list:
+        
+            # Check if position data is already loaded for session:
+            if reload_flag == False and self.pos_data[trial_iterator] != None:
+                print(f'Position data already loaded for trial {trial_iterator}')
+            else:
 
-            # Get path of trial to load
-            path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
+                # Get path of trial to load
+                path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
 
-            if self.recording_type == 'nexus':
-                # Load position data from DACQ files
+                if self.recording_type == 'nexus':
+                    # Load position data from DACQ files
 
-                print(f'Loading pos file: {path}.pos')
+                    print(f'Loading pos file: {path}.pos')
 
-                # Read position data from csv file (faster)
-                data = pd.read_csv(f'{path}_pos.csv', index_col = 0).T
+                    # Read position data from csv file (faster)
+                    data = pd.read_csv(f'{path}_pos.csv', index_col = 0).T
 
-                # Read header from pos file into dictionary
-                with open(f'{path}.pos', 'rb') as fid:
-                    posHeader = {}
+                    # Read header from pos file into dictionary
+                    with open(f'{path}.pos', 'rb') as fid:
+                        posHeader = {}
 
-                    # Read the lines of the file up to the specified number (27 in this case) and write into dict
-                    for _ in range(27):
-                        line = fid.readline()
-                        if not line:
-                            break
-                        elements = line.decode().strip().split()
-                        posHeader[elements[0]] = ' '.join(elements[1:])
+                        # Read the lines of the file up to the specified number (27 in this case) and write into dict
+                        for _ in range(27):
+                            line = fid.readline()
+                            if not line:
+                                break
+                            elements = line.decode().strip().split()
+                            posHeader[elements[0]] = ' '.join(elements[1:])
+                            
+                    # Get sampling rate
+                    pos_sampling_rate = float(posHeader['sample_rate'][:-3])
 
-                # Extract LED position data and tracked pixel size data
-                led_pos = data.loc[:, ['X1', 'Y1', 'X2', 'Y2']]
-                led_pix = data.loc[:, ['Pixels LED 1', 'Pixels LED 2']]
+                    # Extract LED position data and tracked pixel size data
+                    led_pos = data.loc[:, ['X1', 'Y1', 'X2', 'Y2']]
+                    led_pix = data.loc[:, ['Pixels LED 1', 'Pixels LED 2']]
 
-                # Set missing values to NaN
-                led_pos[led_pos == 1023] = np.nan
-                led_pix[led_pix == 1023] = np.nan
+                    # Set missing values to NaN
+                    led_pos[led_pos == 1023] = np.nan
+                    led_pix[led_pix == 1023] = np.nan
 
-                ## Scale pos data to specific PPM 
-                # Currently hard coded to 400 PPM
-                realPPM = int(posHeader['pixels_per_metre'])
-                posHeader['scaled_ppm'] = 400
-                goalPPM = 400
+                    ## Scale pos data to specific PPM 
+                    # Currently hard coded to 400 PPM
+                    realPPM = int(posHeader['pixels_per_metre'])
+                    posHeader['scaled_ppm'] = 400
+                    goalPPM = 400
 
-                scale_fact = goalPPM / realPPM
+                    scale_fact = goalPPM / realPPM
 
-                # Scale area boundaries in place
-                posHeader['min_x'] = int(posHeader['min_x']) * scale_fact
-                posHeader['max_x'] = int(posHeader['max_x']) * scale_fact
-                posHeader['min_y'] = int(posHeader['min_y']) * scale_fact
-                posHeader['max_y'] = int(posHeader['max_y']) * scale_fact
+                    # Scale area boundaries in place
+                    posHeader['min_x'] = int(posHeader['min_x']) * scale_fact
+                    posHeader['max_x'] = int(posHeader['max_x']) * scale_fact
+                    posHeader['min_y'] = int(posHeader['min_y']) * scale_fact
+                    posHeader['max_y'] = int(posHeader['max_y']) * scale_fact
 
-                # Scale pos data in place
-                led_pos['X1'] *= scale_fact
-                led_pos['X2'] *= scale_fact
-                led_pos['Y1'] *= scale_fact
-                led_pos['Y2'] *= scale_fact
+                    # Scale pos data in place
+                    led_pos['X1'] *= scale_fact
+                    led_pos['X2'] *= scale_fact
+                    led_pos['Y1'] *= scale_fact
+                    led_pos['Y2'] *= scale_fact
 
-                # Collect header and data into a dict
-                raw_pos_data = {'header': posHeader,
-                          'led_pos': led_pos.T,
-                          'led_pix': led_pix.T}
+                    # Collect header and data into a dict
+                    raw_pos_data = {'header': posHeader,
+                              'led_pos': led_pos.T,
+                              'led_pix': led_pix.T}
 
-                # Postprocess posdata and return to self as dict
-                from postprocessing.postprocess_pos_data import process_position_data
+                    # Postprocess posdata and return to self as dict
+                    from postprocessing.postprocess_pos_data import process_position_data
 
-                xy_pos, led_pos, led_pix, speed, direction, direction_disp = process_position_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
-
-                # Populate processed pos data
-                self.pos_data[trial_iterator] = {
-                    'xy_position': xy_pos,
-                    'led_positions': led_pos,
-                    'led_pixel_size': led_pix,
-                    'speed': speed,
-                    'direction': direction,
-                    'direction_from_displacement': direction_disp
-                }
+                    xy_pos, led_pos, led_pix, speed, direction, direction_disp = process_position_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
+                    
+                    # Divide by sampling rate to give dataframe columns in seconds
+                    xy_pos.columns /= pos_sampling_rate
+                    led_pos.columns/= pos_sampling_rate
+                    led_pix.columns/= pos_sampling_rate
+                    
+                    # Populate processed pos data
+                    self.pos_data[trial_iterator] = {
+                        'xy_position': xy_pos,
+                        'led_positions': led_pos,
+                        'led_pixel_size': led_pix,
+                        'speed': speed,
+                        'direction': direction,
+                        'direction_from_displacement': direction_disp,
+                        'pos_sampling_rate': pos_sampling_rate
+                    }
 
     def load_lfp(self, trial_iterator, sampling_rate, start_time, end_time, channels, reload_flag = False, bandpass_filter = False):
         """
