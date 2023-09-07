@@ -277,12 +277,12 @@ class ephys:
             }
         
         
-    def load_spikes(self, quality_to_load = None):
+    def load_spikes(self, clusters_to_load = None):
         """
         Loads spike data for the entire recording session from phy output. Can select based on phy label. Also loads channel index for each cluters
         
         Args:
-            quality (str): phy cluster label to load. Most likely 'good', but 'mua' or 'noise' also possible. If None, loads all clusters
+            quality (str or array): phy cluster label (if str) OR cluster IDs (if array) to load. Most likely 'good', but 'mua' or 'noise' also possible. If None, loads all clusters
 
         Populates:
             self.spike_data (dict): A dictionary that stores spike times, spike clusters, and cluster quality for the recording session.
@@ -293,30 +293,29 @@ class ephys:
 
         # Load spike clusters
         spike_clusters = np.load(f'{self.sorting_path}/spike_clusters.npy')
-
-        # Load cluster groups (quality)
-        cluster_df = pd.read_csv(f'{self.sorting_path}/cluster_group.tsv', sep='\t')
         
-        # Load channels and other properties for each cluster as dict
-        channels_df = pd.read_csv(f'{self.sorting_path}/cluster_channel.tsv', sep='\t')
-        cluster_df = pd.merge(cluster_df, channels_df, on = 'cluster_id', how = 'outer')
-        cluster_df.index = cluster_df['cluster_id']
-
+        # Load spike templates
+        spike_templates = np.load(f'{self.sorting_path}/spike_templates.npy')
         
-        if quality_to_load:
-            # Extract clusters matching quality to load
-            good_clusters = cluster_df[cluster_df['group'] == quality_to_load]
+        # Load cluster info
+        cluster_info = pd.read_csv(f'{self.sorting_path}/cluster_info.tsv', sep='\t', index_col = 0)
 
-            mask = np.isin(spike_clusters, good_clusters['cluster_id'])
+        if clusters_to_load:
+            
+            if np.isscalar(clusters_to_load): #If string e.g. 'good'
+                # Extract clusters matching quality to load
+                cluster_info = cluster_info[cluster_info['group'] == clusters_to_load]
+            
+            else: #if array of cluster IDs
+                # Extract only clusters matching the input array
+                cluster_info = cluster_info[np.isin(cluster_info.index, clusters_to_load)]
+            
+            # Select spike times etc of the included clusters
+            mask = np.isin(spike_clusters, cluster_info.index)
             spike_times = spike_times[mask]
             spike_clusters = spike_clusters[mask]
-
-            # Set the cluster quality attribute
-            cluster_quality = good_clusters['group'].to_dict()
-
-            # Set the cluster channel attribute
-            cluster_channels = good_clusters['channel'].to_dict()
-
+            spike_templates = spike_templates[mask]
+            
         
         # Get sampling rate
         sort = se.read_phy(f'{self.sorting_path}').__dict__
@@ -324,8 +323,8 @@ class ephys:
         
         ### Add a label for which behavioural trial each included spike is from
         
-        # Convert spike times into seconds
-        spike_times = np.divide(spike_times, sampling_rate)
+        # Convert spike times into seconds and flatten into a 1D array
+        spike_times = np.divide(spike_times, sampling_rate).flatten()
             
         # Determine the trial for each spike
         spike_trial = np.digitize(spike_times.flatten(), self.trial_offsets) - 1
@@ -335,11 +334,12 @@ class ephys:
         self.spike_data = {
             'spike_times': spike_times,
             'spike_clusters': spike_clusters,
-            'cluster_channels': cluster_channels,
-            'cluster_quality': cluster_quality,
+            'spike_templates': spike_templates,
             'spike_trial': spike_trial,
+            'cluster_info': cluster_info,
             'sampling_rate': sampling_rate
-
-        }
+            }
+        
+        
 
 

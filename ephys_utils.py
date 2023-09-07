@@ -136,3 +136,44 @@ def get_theta_phase(lfp, spike_times, sampling_rate, peakFreq, filtHalfBandWidth
     spike_phases = eegPhase[spike_indices]
 
     return spike_phases
+
+from scipy.sparse import coo_matrix
+def find_template_for_clusters(clu, spike_templates):
+    """
+    Determine the most represented template for each cluster and return as a dictionary.
+    
+    Parameters:
+    -----------
+    clu : np.ndarray
+        Array of cluster IDs corresponding to each spike.
+    spike_templates : np.ndarray
+        Array of template IDs corresponding to each spike.
+        
+    Returns:
+    --------
+    temp_per_clu_dict : dict
+        Dictionary where keys are cluster IDs and values are the template most represented 
+        for that cluster.
+    """
+    # Ensure the input arrays are 1D
+    clu = clu.reshape(-1)
+    spike_templates = spike_templates.reshape(-1)
+    
+    # Create a sparse matrix to count occurrences
+    temp_counts_by_clu = coo_matrix((np.ones(clu.shape[0]), (clu, spike_templates))).toarray()
+    
+    # Find the column index with the maximum count for each row (cluster)
+    temp_per_clu = np.argmax(temp_counts_by_clu, axis=1) - 1
+    
+    # Convert to float array for inserting NaN values
+    temp_per_clu = temp_per_clu.astype(float)
+    
+    # Identify and set NaN for non-existent clusters
+    existent_clusters = np.unique(clu)
+    non_existent_clusters = np.setdiff1d(np.arange(len(temp_per_clu)), existent_clusters)
+    temp_per_clu[non_existent_clusters] = np.nan
+    
+    # Create dictionary mapping cluster ID to the most represented template ID
+    temp_per_clu_dict = {cluster: template for cluster, template in enumerate(temp_per_clu) if not np.isnan(template)}
+    
+    return temp_per_clu_dict
