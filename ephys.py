@@ -266,6 +266,9 @@ class ephys:
             if bandpass_filter:
                 # Bandpass filter
                 recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+            
+            # Set channels to load to list of str to match recording object - not ideal but other fixes are harder
+            channels = list(map(str, channels))
 
             lfp_data = recording.get_traces(start_frame = start_time*sampling_rate, end_frame = end_time*sampling_rate, channel_ids = channels)
             lfp_timestamps = recording.get_times()[start_time*sampling_rate:end_time*sampling_rate]
