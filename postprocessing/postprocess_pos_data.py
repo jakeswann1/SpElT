@@ -90,7 +90,7 @@ def led_swap_filter(led_pos, led_pix, thresh=5):
     led_pix_swap = led_pix.copy()
     led_pix_swap.iloc[:, swap_list] = led_pix.iloc[[0, 1], swap_list]
     
-    print(f'{len(swap_list)} LED swaps detected and fixed')
+    # print(f'{len(swap_list)} LED swaps detected and fixed')
 
     return led_pos_swap, led_pix_swap
 

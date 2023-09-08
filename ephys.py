@@ -134,7 +134,7 @@ class ephys:
             #Populate basic metdata       
             self.metadata[trial_iterator] = setHeader
 
-    def load_pos(self, trial_list, reload_flag = False):
+    def load_pos(self, trial_list, output_flag = True, reload_flag = False):
         """
         Loads  and postprocesses the position data for a specified trial. Currently only from Dacq .pos files
 
@@ -161,7 +161,8 @@ class ephys:
                 if self.recording_type == 'nexus':
                     # Load position data from DACQ files
 
-                    print(f'Loading pos file: {path}.pos')
+                    if output_flag:
+                        print(f'Loading pos file: {path}.pos')
 
                     # Read position data from csv file (faster)
                     data = pd.read_csv(f'{path}_pos.csv', index_col = 0).T
@@ -303,7 +304,7 @@ class ephys:
         # Load cluster info
         cluster_info = pd.read_csv(f'{self.sorting_path}/cluster_info.tsv', sep='\t', index_col = 0)
 
-        if clusters_to_load:
+        if clusters_to_load != None:
             
             if np.isscalar(clusters_to_load): #If string e.g. 'good'
                 # Extract clusters matching quality to load
