@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from tkinter import filedialog
 
-from preprocessing.utils import gs_to_df
+from session_utils import gs_to_df
 
 class ephys:
     '''
@@ -139,12 +139,12 @@ class ephys:
         Loads  and postprocesses the position data for a specified trial. Currently only from Dacq .pos files
 
         Args:
-            trial_iterator (int or array): The index of the trial for which position data is to be loaded.
+            trial_list (int or array): The index of the trial for which position data is to be loaded.
 
         Populates:
             self.pos_data (list): A list that stores position data for each trial. The position data for the specified trial is added at the given index.
         """  
-        # Deal with int trial_iterator
+        # Deal with int trial_list
         if isinstance(trial_list, int):
             trial_list = [trial_list]
             
@@ -236,16 +236,16 @@ class ephys:
                         'pos_sampling_rate': pos_sampling_rate
                     }
 
-    def load_lfp(self, trial_iterator, sampling_rate, start_time, end_time, channels, reload_flag = False, bandpass_filter = False):
+    def load_lfp(self, trial_list, sampling_rate, channels = None, reload_flag = False, bandpass_filter = False):
         """
         Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
 
         Args:
-            trial_iterator (int): The index of the trial for which LFP data is to be loaded.
+            trial_list (int or array-like): The index of the trial for which LFP data is to be loaded.
             sampling_rate (int): The desired sampling rate for the LFP data.
-            start_time (int): The start time from which LFP data is to be extracted.
-            end_time (int): The end time until which LFP data is to be extracted.
-            channels (list of int): A list of channel IDs from which LFP data is to be extracted.
+            start_time (int, optional): The start time from which LFP data is to be extracted. Default to 0
+            end_time (int, optional): The end time until which LFP data is to be extracted. Default is max t
+            channels (list of int, optional): A list of channel IDs from which LFP data is to be extracted. Default is all
 
         Populates:
             self.lfp_data (list): A list that stores LFP data for each trial. The LFP data for the specified trial is added at the given index.
@@ -253,33 +253,40 @@ class ephys:
         from spikeinterface.extractors import read_axona
         import spikeinterface.preprocessing as spre
         
-        # Check if LFP is already loaded for session:
-        if reload_flag == False and self.lfp_data[trial_iterator] != None:
-                print(f'LFP data already loaded for trial {trial_iterator}')
-                
-        else:
-            path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
-            recording = read_axona(path)
-
-            # Resample
-            recording = spre.resample(recording, sampling_rate)
-
-            if bandpass_filter:
-                # Bandpass filter
-                recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+        # Deal with int trial_list
+        if isinstance(trial_list, int):
+            trial_list = [trial_list]
             
-            # Set channels to load to list of str to match recording object - not ideal but other fixes are harder
-            channels = list(map(str, channels))
+        for trial_iterator in trial_list:
 
-            lfp_data = recording.get_traces(start_frame = start_time*sampling_rate, end_frame = end_time*sampling_rate, channel_ids = channels)
-            lfp_timestamps = recording.get_times()[start_time*sampling_rate:end_time*sampling_rate]
+            # Check if LFP is already loaded for session:
+            if reload_flag == False and self.lfp_data[trial_iterator] != None:
+                    print(f'LFP data already loaded for trial {trial_iterator}')
 
-            self.lfp_data[trial_iterator] = {
-            'data': lfp_data,
-            'timestamps': lfp_timestamps,
-            'sampling_rate': sampling_rate
-            }
-        
+            else:
+                path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
+                recording = read_axona(path)
+
+                # Resample
+                recording = spre.resample(recording, sampling_rate)
+
+                if bandpass_filter is True:
+                    # Bandpass filter
+                    recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+
+                # Set channels to load to list of str to match recording object - not ideal but other fixes are harder
+                if channels is not None:
+                    channels = list(map(str, channels))
+                    
+                lfp_data = recording.get_traces(start_frame = 0, end_frame = recording.get_num_frames()-1, channel_ids = channels)
+                lfp_timestamps = recording.get_times()
+
+                self.lfp_data[trial_iterator] = {
+                'data': lfp_data,
+                'timestamps': lfp_timestamps,
+                'sampling_rate': sampling_rate
+                }
+
         
     def load_spikes(self, clusters_to_load = None):
         """
@@ -304,21 +311,29 @@ class ephys:
         # Load cluster info
         cluster_info = pd.read_csv(f'{self.sorting_path}/cluster_info.tsv', sep='\t', index_col = 0)
 
-        if clusters_to_load != None:
+        if clusters_to_load is not None:
             
-            if np.isscalar(clusters_to_load): #If string e.g. 'good'
-                # Extract clusters matching quality to load
-                cluster_info = cluster_info[cluster_info['group'] == clusters_to_load]
+            # Case if clusters to load is an empty array:
+            if len(clusters_to_load) == 0:
+                spike_times = np.nan
+                spike_clusters = np.nan
+                spike_templates = np.nan
             
-            else: #if array of cluster IDs
-                # Extract only clusters matching the input array
-                cluster_info = cluster_info[np.isin(cluster_info.index, clusters_to_load)]
+            else:
+                if np.isscalar(clusters_to_load): #If string e.g. 'good'
+                    # Extract clusters matching quality to load
+                    cluster_info = cluster_info[cluster_info['group'] == clusters_to_load]
+
+                else: #if array of cluster IDs
+                    # Extract only clusters matching the input array
+                    cluster_info = cluster_info[np.isin(cluster_info.index, clusters_to_load)]
+
+                # Select spike times etc of the included clusters
+                mask = np.isin(spike_clusters, cluster_info.index)
+                spike_times = spike_times[mask]
+                spike_clusters = spike_clusters[mask]
+                spike_templates = spike_templates[mask]
             
-            # Select spike times etc of the included clusters
-            mask = np.isin(spike_clusters, cluster_info.index)
-            spike_times = spike_times[mask]
-            spike_clusters = spike_clusters[mask]
-            spike_templates = spike_templates[mask]
             
         
         # Get sampling rate

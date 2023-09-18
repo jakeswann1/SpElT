@@ -1,7 +1,7 @@
 # Various functions useful for analysis
 import numpy as np
 
-def load_session(obj):
+def load_session(obj, lfp_sampling_rate):
     '''
     Loads all metadata, position files, and spikes for all trials of a session into an existing ephys class object
     
@@ -11,6 +11,7 @@ def load_session(obj):
     for i in range(len(obj.trial_list)):
         obj.load_metadata(i)
         obj.load_pos(i)
+        obj.load_lfp(i, lfp_sampling_rate), 
     obj.load_spikes('good')
 
 def select_spikes_by_trial(spike_data, trials, trial_offsets):
@@ -20,6 +21,7 @@ def select_spikes_by_trial(spike_data, trials, trial_offsets):
     Parameters:
     - spike_data: Dictionary containing spike data (including 'trial_for_spike').
     - trials: Single trial number or a list of trial numbers to filter by.
+    - trial_offsets: trial offset start times from 0 (FOR ALL TRIALS IN SESSION)
     
     Returns:
     - Dictionary containing filtered spike times and clusters.
