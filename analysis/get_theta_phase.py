@@ -57,9 +57,20 @@ def get_theta_phase(lfp, spike_times, sampling_rate, peakFreq, filtHalfBandWidth
     
     # Remove from data
     eegPhase[badLengthInd | badPowerInd] = np.nan
-
+    
     # 6. MAP SPIKE TIMES TO PHASE
     spike_indices = (spike_times * sampling_rate).astype(int)
-    spike_phases = eegPhase[spike_indices]
+
+    # Initialize spike_phases array
+    spike_phases = np.zeros_like(spike_times)
+
+    # Handle spike times within the range of the LFP data
+    in_bounds_indices = spike_indices < len(eegPhase)
+    spike_phases[in_bounds_indices] = eegPhase[spike_indices[in_bounds_indices]]
+
+    # Set the phase as np.nan for out-of-bounds spike times
+    out_of_bounds_indices = ~in_bounds_indices
+    spike_phases[out_of_bounds_indices] = np.nan
+
 
     return spike_phases

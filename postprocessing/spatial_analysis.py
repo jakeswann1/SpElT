@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 
 # Function to generate rate maps for a defined number of X and Y bins
-def generate_rate_maps(spike_data, positions, ppm=1, x_bins=10, y_bins=10, dt=1.0, smoothing_window=5):
+def make_rate_maps(spike_data, positions, ppm=1, x_bins=10, y_bins=10, dt=1.0, smoothing_window=5):
     """
     Generate smoothed rate maps for neurons with optimized computational efficiency.
     
@@ -47,31 +47,29 @@ def generate_rate_maps(spike_data, positions, ppm=1, x_bins=10, y_bins=10, dt=1.
     y_bin_idx = np.clip(y_bin_idx, 0, y_bins - 1)
     
     occupancy, _, _ = np.histogram2d(x_coords, y_coords, bins=[x_bin_edges, y_bin_edges])
-    
-    rate_maps_dict = {}
-    
+        
     for key, sub_dict in spike_data.items():
-        rate_maps_sub_dict = {cluster: np.zeros_like(occupancy) for cluster in sub_dict.keys()}
+        rate_maps_dict = {cluster: np.zeros_like(occupancy) for cluster in sub_dict.keys()}
         
         for cluster, spike_times in sub_dict.items():
             in_bins = np.digitize(spike_times, sampleTimes) - 1
-            np.add.at(rate_maps_sub_dict[cluster], (x_bin_idx[in_bins], y_bin_idx[in_bins]), 1)
+            np.add.at(rate_maps_dict[cluster], (x_bin_idx[in_bins], y_bin_idx[in_bins]), 1)
         
-        for cluster, spike_count in rate_maps_sub_dict.items():
+        for cluster, spike_count in rate_maps_dict.items():
             rate_map_raw = spike_count / (occupancy * dt + 1e-10)
             rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
             rate_map_smoothed[occupancy == 0] = np.nan
-            rate_maps_sub_dict[cluster] = rate_map_smoothed
+            rate_maps_dict[cluster] = rate_map_smoothed
             
-    return rate_maps_sub_dict, occupancy
+    return rate_maps_dict, occupancy
 
-def plot_cluster_across_sessions(rate_maps_dict, cluster_id, title_prefix=""):
+def plot_cluster_across_sessions(rate_maps_dict, cluster_id, session="N/A"):
     n_sessions = sum(cluster_id in sub_dict for sub_dict in rate_maps_dict.values())
     if n_sessions == 0:
         print(f"Cluster {cluster_id} is not found in any session.")
         return
     fig, axes = plt.subplots(1, n_sessions, figsize=(15, 5))
-    fig.suptitle(f"{title_prefix} Cluster {cluster_id}")
+    fig.suptitle(f"Rate maps for Session {session} Cluster {cluster_id}")
     if n_sessions == 1:
         axes = [axes]
     ax_idx = 0
@@ -82,7 +80,6 @@ def plot_cluster_across_sessions(rate_maps_dict, cluster_id, title_prefix=""):
             axes[ax_idx].set_title(f"Trial {session_key}")
             # plt.colorbar(im, ax=axes[ax_idx])
             ax_idx += 1
-    plt.show()
 
 def interactive_cluster_plot(rate_maps_dict, title_prefix=""):
     unique_clusters = set(cluster for sub_dict in rate_maps_dict.values() for cluster in sub_dict.keys())

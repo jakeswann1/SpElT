@@ -1,56 +1,74 @@
 import numpy as np
+import pandas as pd
 
 def assign_sectors(xy_positions):
-    # Assign min and max x and y - currently calculated from traversed
-    # positions, not camera max and min
-    min_x = np.nanmin(xy_positions.iloc[:, 0])
-    max_x = np.nanmax(xy_positions.iloc[:, 0])
-    min_y = np.nanmin(xy_positions.iloc[:, 1])
-    max_y = np.nanmax(xy_positions.iloc[:, 1])
-
-    # Check if the input arguments are valid, try transposing array if not
+    """
+    Assign sectors to given xy_positions based on a grid layout.
+    
+    Parameters:
+    - xy_positions (DataFrame): DataFrame containing x and y coordinates.
+    
+    Returns:
+    - sector_numbers (ndarray): Array containing sector numbers for each coordinate.
+    """
+    
+    # Validate input
+    if not isinstance(xy_positions, pd.DataFrame):
+        raise TypeError("Input xy_positions must be a pandas DataFrame.")
+    
     if xy_positions.shape[1] != 2:
         xy_positions = xy_positions.T
-        
         if xy_positions.shape[1] != 2:
-            raise ValueError('Invalid input arguments.')
-
-    # Define the grid dimensions
+            raise ValueError('Invalid input dimensions.')
+            
+    # Drop rows where either x or y is NaN only for min/max calculation
+    xy_positions_filtered = xy_positions.dropna(subset=[xy_positions.columns[0], xy_positions.columns[1]])
+    
+    # Check if DataFrame is empty after removing NaNs
+    if xy_positions_filtered.empty:
+        raise ValueError("Input DataFrame is empty after removing NaN values.")
+    
+    # Calculate min and max x and y coordinates
+    min_x = np.min(xy_positions_filtered.iloc[:, 0])
+    max_x = np.max(xy_positions_filtered.iloc[:, 0])
+    min_y = np.min(xy_positions_filtered.iloc[:, 1])
+    max_y = np.max(xy_positions_filtered.iloc[:, 1])
+    
+    # Define grid dimensions
     num_cols = 4
     num_rows = 3
-
-    # Calculate the sector width and height
+    
+    # Calculate sector dimensions
     sector_width = (max_x - min_x) / num_cols
     sector_height = (max_y - min_y) / num_rows
-
-    # Calculate the sector numbers for each position
+    
+    # Initialize sector numbers array
     num_positions = xy_positions.shape[0]
     sector_numbers = np.zeros(num_positions)
-
+    
     for i in range(num_positions):
-        # Extract the X and Y coordinates of the current position
+        # Extract x and y coordinates
         x_pos = xy_positions.iloc[i, 0]
         y_pos = xy_positions.iloc[i, 1]
         
+        # Assign NaN if either coordinate is NaN
         if np.isnan(x_pos) or np.isnan(y_pos):
+            sector_numbers[i] = np.nan
             continue
-
-        # Calculate the column and row indices of the current position
+        
+        # Calculate column and row indices
         col_index = int(np.floor((x_pos - min_x) / sector_width)) + 1
         row_index = int(np.floor((y_pos - min_y) / sector_height)) + 1
-
-        # Ensure that the indices are within the valid range
+        
+        # Clamp indices within valid range
         col_index = max(1, min(col_index, num_cols))
         row_index = max(1, min(row_index, num_rows))
-
-        # Calculate the sector number
+        
+        # Calculate and store sector number
         sector_number = (row_index - 1) * num_cols + col_index
-
-        # Store the sector number for the current position
         sector_numbers[i] = sector_number
-
+    
     return sector_numbers
-
 
 def calculate_choices(xy_positions, sector_numbers):
     """
