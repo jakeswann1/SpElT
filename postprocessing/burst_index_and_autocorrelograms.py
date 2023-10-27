@@ -1,20 +1,20 @@
 import numpy as np
 # Function to calculate burst index and autocorrelograms
-def compute_autocorrelograms_and_burst_indices(spike_times, spike_clusters, bin_size, time_window, burst_threshold):
+def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_size, time_window, burst_threshold):
     """
-    Function to compute autocorrelograms and burst indices for multiple clusters, 
-    returning them as separate dictionaries.
+    Adapted function to compute autocorrelograms, burst indices, and first moments (in ms) for multiple clusters, 
+    returning them as separate dictionaries. Includes acWin to constrain bins for first moment calculation.
     
     Parameters:
     - spike_times (numpy array): Array of spike times in seconds.
     - spike_clusters (numpy array): Array of cluster IDs corresponding to each spike time.
     - bin_size (float): The size of the bins for the autocorrelogram in seconds.
-    - time_window (float): The time window around each spike to consider for autocorrelation in seconds.
-    - burst_threshold (float): Time threshold for defining a burst, in seconds.
+    - time_window (float): The time window around each spike to consider for autocorrelation and first moment in seconds.
     
     Returns:
     - autocorrelograms (dict): A dictionary containing the bin centers and counts for each cluster's autocorrelogram.
-    - burst_indices (dict): A dictionary containing the burst index for each cluster.
+    - burst_indices (dict): A dictionary containing the burst index for each cluster
+    - first_moments (dict): A dictionary containing the first moment for each cluster's autocorrelogram (in ms).
     """
     # Define the bin edges for the histogram (common for all clusters)
     bin_edges = np.arange(-time_window, time_window + bin_size, bin_size)
@@ -22,6 +22,7 @@ def compute_autocorrelograms_and_burst_indices(spike_times, spike_clusters, bin_
     # Initialize dictionaries for storing results
     autocorrelograms = {}
     burst_indices = {}
+    first_moments = {}
     
     # Identify unique clusters
     unique_clusters = np.unique(spike_clusters)
@@ -48,6 +49,7 @@ def compute_autocorrelograms_and_burst_indices(spike_times, spike_clusters, bin_
         # Store autocorrelogram in dictionary
         autocorrelograms[cluster] = {'bin_centers': bin_centers, 'counts': counts}
         
+        ### CALCULATE BURST INDICES - CURRENTLY UNUSED
         # Calculate inter-spike intervals (ISIs) for burst index
         isis = np.diff(cluster_spike_times)
         
@@ -67,9 +69,31 @@ def compute_autocorrelograms_and_burst_indices(spike_times, spike_clusters, bin_
         # Store burst index in dictionary
         burst_indices[cluster] = burst_index
         
-    return autocorrelograms, burst_indices
+        ### Compute the first moment (mean) of the autocorrelogram, in milliseconds
+        # fm_bin_size = bin_size * 1000  # Convert bin size to milliseconds
+        fm_bin_centers = bin_centers * 1000 # Convert bin centres to milliseconds
+        
+        # Filter bins where bin centers are positive
+        positive_indices = np.where(fm_bin_centers > 0)[0]
+        positive_bin_centers = fm_bin_centers[positive_indices]
+        positive_counts = counts[positive_indices]
+    
+        # Calculate the weighted sum of positive bin centers
+        weighted_sum = np.sum(positive_bin_centers * positive_counts)
 
-def plot_autocorrelogram(session, cluster, autocorrelogram, burst_index):
+        # Calculate the total count in positive bins
+        total_positive_count = np.sum(positive_counts)
+
+        # Calculate the mean of the positive parts
+        moment = weighted_sum / total_positive_count
+        
+        # Store first moment in dictionary
+        first_moments[cluster] = moment
+        
+    return autocorrelograms, first_moments, burst_indices
+
+
+def plot_autocorrelogram(session, cluster, autocorrelogram, burst_index, first_moment):
     """
     Function to plot an autocorrelogram for a given cluster and annotate it with the burst index.
     
@@ -77,6 +101,7 @@ def plot_autocorrelogram(session, cluster, autocorrelogram, burst_index):
     - cluster (int): Cluster ID.
     - autocorrelogram (dict): A dictionary containing the bin centers and counts for the cluster's autocorrelogram.
     - burst_index (float): The burst index for the cluster.
+    - first_moment (float): The first moment of the autocorrelogram for the cluster.
     
     Returns:
     - fig, ax (matplotlib figure and axis): Figure and axis containing the plot.
@@ -85,7 +110,7 @@ def plot_autocorrelogram(session, cluster, autocorrelogram, burst_index):
     
     # Plot the autocorrelogram
     ax.bar(autocorrelogram['bin_centers'], autocorrelogram['counts'], width=0.001)  # Assuming bin size of 1ms
-    ax.set_title(f"{session} Cluster {cluster}: Burst Index = {burst_index:.3f}")
+    ax.set_title(f"{session} Cluster {cluster}: Burst Index = {burst_index:.3f}; First Moment = {first_moment:.3f}")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Counts")
     
