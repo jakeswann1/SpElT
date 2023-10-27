@@ -19,9 +19,9 @@ def select_spikes_by_trial(spike_data, trials, trial_offsets):
     Select spikes from specific trials. Returns spikes time-indexed from 0 at the start of each trial
     
     Parameters:
-    - spike_data: Dictionary containing spike data (including 'trial_for_spike').
-    - trials: Single trial number or a list of trial numbers to filter by.
-    - trial_offsets: trial offset start times from 0 (FOR ALL TRIALS IN SESSION)
+    - spike_data: Dictionary containing spike data (including 'spike_trial').
+    - trials (int or list of int): Single trial number or a list of trial numbers to filter by.
+    - trial_offsets (list of float): trial offset start times from 0 (FOR ALL TRIALS IN SESSION)
     
     Returns:
     - Dictionary containing filtered spike times and clusters.

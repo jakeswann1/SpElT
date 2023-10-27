@@ -17,14 +17,14 @@ class ephys:
         obj = ephys('nexus') will prompt a box to select the recording folder
         
 
-        # Load metadata for the first trial.
-        obj.load_metadata(0)
+        # Load metadata for a list of trials.
+        obj.load_metadata([0, 2, 3])
 
-        # Load position data for the first trial.
-        obj.load_pos(0)
+        # Load position data for a list of trials.
+        obj.load_pos([0, 1, 2])
 
-        # Load LFP data for the first trial with a specific sampling rate, start time, end time, and channels.
-        obj.load_lfp(0, 30000, 0, 600, [1, 2, 3, 4])
+        # Load LFP data for a list of trials with a specific sampling rate and channels.
+        obj.load_lfp([0, 1, 2], sampling_rate = 1000, channels = [0, 1, 2])
 
         # Load spike data for the session.
         obj.load_spikes()
@@ -101,7 +101,7 @@ class ephys:
         self.max_speed = 5
         self.smoothing_window_size = 3
     
-    def load_metadata(self, trial_iterator):
+    def load_metadata(self, trial_list):
         """
         Loads the metadata for a specified trial. Currently only a subset of lines from the Dacq .set file
 
@@ -110,29 +110,35 @@ class ephys:
 
         Populates:
             self.metadata (list): A list that stores metadata for each trial. The metadata for the specified trial is added at the given index.
-        """        
-        if self.recording_type == 'nexus':
-            # Get path of trial to load
-            path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
+        """  
+        
+        # Deal with int trial_list
+        if isinstance(trial_list, int):
+            trial_list = [trial_list]
+            
+        for trial_iterator in trial_list:
+            if self.recording_type == 'nexus':
+                # Get path of trial to load
+                path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
 
-            print(f'Loading set file: {path}')
+                print(f'Loading set file: {path}')
 
-            with open(path, 'rb') as fid:
-                setHeader = {}
+                with open(path, 'rb') as fid:
+                    setHeader = {}
 
-                # Read the lines of the file up to the specified number (5 in this case) and write into dict
-                for _ in range(5):
-                    line = fid.readline()
-                    if not line:
-                        break
-                    elements = line.decode().strip().split()
-                    setHeader[elements[0]] = ' '.join(elements[1:])
-                    
-            # Add sampling rate - HARDCODED FOR NOW
-            setHeader['sampling_rate'] = 48000
+                    # Read the lines of the file up to the specified number (5 in this case) and write into dict
+                    for _ in range(5):
+                        line = fid.readline()
+                        if not line:
+                            break
+                        elements = line.decode().strip().split()
+                        setHeader[elements[0]] = ' '.join(elements[1:])
 
-            #Populate basic metdata       
-            self.metadata[trial_iterator] = setHeader
+                # Add sampling rate - HARDCODED FOR NOW
+                setHeader['sampling_rate'] = 48000
+
+                #Populate basic metdata       
+                self.metadata[trial_iterator] = setHeader
 
     def load_pos(self, trial_list, output_flag = True, reload_flag = False):
         """
@@ -193,16 +199,25 @@ class ephys:
                     ## Scale pos data to specific PPM 
                     # Currently hard coded to 400 PPM
                     realPPM = int(posHeader['pixels_per_metre'])
+
+                    # TERRIBLE HACK - NEEDS FIXING PROPERLY
+                    # If t-maze trial, rescale PPM because it isn't set right in pos file 
+                    if 't-maze' in self.trial_list[trial_iterator]:
+                        realPPM = 615
+                        posHeader['pixels_per_metre'] = 615
+                        if output_flag:
+                            print(f'Real PPM artifically set to 615 (t-maze default)')
+
+                    
                     posHeader['scaled_ppm'] = 400
                     goalPPM = 400
-
                     scale_fact = goalPPM / realPPM
 
                     # Scale area boundaries in place
-                    posHeader['min_x'] = int(posHeader['min_x']) * scale_fact
-                    posHeader['max_x'] = int(posHeader['max_x']) * scale_fact
-                    posHeader['min_y'] = int(posHeader['min_y']) * scale_fact
-                    posHeader['max_y'] = int(posHeader['max_y']) * scale_fact
+                    posHeader['min_x'] = int(posHeader['window_min_x']) * scale_fact
+                    posHeader['max_x'] = int(posHeader['window_max_x']) * scale_fact
+                    posHeader['min_y'] = int(posHeader['window_min_y']) * scale_fact
+                    posHeader['max_y'] = int(posHeader['window_max_y']) * scale_fact
 
                     # Scale pos data in place
                     led_pos['X1'] *= scale_fact
@@ -227,6 +242,7 @@ class ephys:
                     
                     # Populate processed pos data
                     self.pos_data[trial_iterator] = {
+                        'header': posHeader,
                         'xy_position': xy_pos,
                         'led_positions': led_pos,
                         'led_pixel_size': led_pix,
@@ -235,6 +251,7 @@ class ephys:
                         'direction_from_displacement': direction_disp,
                         'pos_sampling_rate': pos_sampling_rate
                     }
+                    
 
     def load_lfp(self, trial_list, sampling_rate, channels = None, reload_flag = False, bandpass_filter = False):
         """
