@@ -1,12 +1,13 @@
 import numpy as np
 import pandas as pd
 
-def assign_sectors(xy_positions):
+def assign_sectors(xy_positions, pos_header):
     """
     Assign sectors to given xy_positions based on a grid layout.
     
     Parameters:
     - xy_positions (DataFrame): DataFrame containing x and y coordinates.
+    - pos_header (dict): position header dictionary from ephys object
     
     Returns:
     - sector_numbers (ndarray): Array containing sector numbers for each coordinate.
@@ -28,11 +29,12 @@ def assign_sectors(xy_positions):
     if xy_positions_filtered.empty:
         raise ValueError("Input DataFrame is empty after removing NaN values.")
     
-    # Calculate min and max x and y coordinates
-    min_x = np.min(xy_positions_filtered.iloc[:, 0])
-    max_x = np.max(xy_positions_filtered.iloc[:, 0])
-    min_y = np.min(xy_positions_filtered.iloc[:, 1])
-    max_y = np.max(xy_positions_filtered.iloc[:, 1])
+    # Calculate the minimum and maximum x, y coordinates to determine the field of view (FOV)
+    # These coordinates are rounded to the nearest lower and upper bin edges, respectively
+    min_x = pos_header['min_x']
+    max_x = pos_header['max_x']
+    min_y = pos_header['min_y']
+    max_y = pos_header['max_y']
     
     # Define grid dimensions
     num_cols = 4
@@ -55,7 +57,7 @@ def assign_sectors(xy_positions):
         if np.isnan(x_pos) or np.isnan(y_pos):
             sector_numbers[i] = np.nan
             continue
-        
+
         # Calculate column and row indices
         col_index = int(np.floor((x_pos - min_x) / sector_width)) + 1
         row_index = int(np.floor((y_pos - min_y) / sector_height)) + 1
