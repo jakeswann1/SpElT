@@ -111,18 +111,19 @@ def calculate_choices(xy_positions, sector_numbers):
     """
     arm_ind = np.zeros(len(sector_numbers))
     
-    # Initialize choice as starting arm (usually centre)
-    if sector_numbers[0] in [5,6,7,8]:
-        choice = 'centre'
-    elif sector_numbers[0] in [1,2,3,4]:
-        choice = 'left'
-        print('Animal not starting trial in centre arm')
-    elif sector_numbers[0] in [9, 10, 11, 12]:
-        choice = 'right'
-        print('Animal not starting trial in centre arm')
-    else:
-        choice = ''
-        print('Sectors assigned incorrectly, please check')
+    choice = ''
+    # # Initialize choice as starting arm (usually centre)
+    # if sector_numbers[0] in [5,6,7,8]:
+    #     choice = 'centre'
+    # elif sector_numbers[0] in [1,2,3,4]:
+    #     choice = 'left'
+    #     print('Animal not starting trial in centre arm')
+    # elif sector_numbers[0] in [9, 10, 11, 12]:
+    #     choice = 'right'
+    #     print('Animal not starting trial in centre arm')
+    # else:
+    #     choice = ''
+    #     print('Sectors assigned incorrectly, please check')
         
     for i in range(len(sector_numbers)):
         if sector_numbers[i] == 8:
