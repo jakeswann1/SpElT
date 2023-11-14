@@ -69,9 +69,11 @@ class ephys:
         self.date_short = f'{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}'
         self.animal = self.recording_path.split('/')[-2]
         
-        # Get age from Google Sheet
+        # Get age and probe info from Google Sheet
         df = gs_to_df('https://docs.google.com/spreadsheets/d/1_Xs5i-rHNTywV-WuQ8-TZliSjTxQCCqGWOD2AL_LIq0/edit#gid=0')
         self.age = df['Age'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
+        self.probe_type = df['probe_type'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
+        self.probe_channels = df['num_channels'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
 
         self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks2_custom'
         
@@ -80,6 +82,7 @@ class ephys:
         
         # Collect each trial name into a numpy array
         self.trial_list = self.session.iloc[:,1].to_list()
+        self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
         
         # Collect trial offsets for aligning spike data
         recordings = self.session.iloc[:,0].to_list()
@@ -127,7 +130,7 @@ class ephys:
                     setHeader = {}
 
                     # Read the lines of the file up to the specified number (5 in this case) and write into dict
-                    for _ in range(5):
+                    while True:
                         line = fid.readline()
                         if not line:
                             break
@@ -263,6 +266,8 @@ class ephys:
             start_time (int, optional): The start time from which LFP data is to be extracted. Default to 0
             end_time (int, optional): The end time until which LFP data is to be extracted. Default is max t
             channels (list of int, optional): A list of channel IDs from which LFP data is to be extracted. Default is all
+            reload_flag (bool, optional): if true, forces reloading of data. If false, only loads data for trials with no LFP data loaded. Default False
+            bandpass_filter (bool, optional): option to apply a bandpass filter at 1-300Hz. Default False
 
         Populates:
             self.lfp_data (list): A list that stores LFP data for each trial. The LFP data for the specified trial is added at the given index.
@@ -301,7 +306,8 @@ class ephys:
                 self.lfp_data[trial_iterator] = {
                 'data': lfp_data,
                 'timestamps': lfp_timestamps,
-                'sampling_rate': sampling_rate
+                'sampling_rate': sampling_rate,
+                'channels': channels
                 }
 
         

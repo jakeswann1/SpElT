@@ -199,8 +199,12 @@ def sort(recording, recording_name, base_folder, electrode_type, sorting_suffix)
     HTML("<script>Jupyter.notebook.kernel.restart()</script>")
 
     if (sorting_path).is_dir():
-        sorting = si.load_extractor(sorting_path / 'sort')
-        print(f"Sorting loaded from file {sorting_path}\n")
+        try:
+            sorting = si.load_extractor(sorting_path / 'sort')
+            print(f"Sorting loaded from file {sorting_path}\n")
+        except ValueError:
+            print(f"Sorting at {sorting_path} failed to load - try deleting the folder and rerun")
+            raise ValueError
 
     else:
         if 'tetrode' in electrode_type:
