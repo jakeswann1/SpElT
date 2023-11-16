@@ -1,6 +1,6 @@
 import numpy as np
 # Function to calculate burst index and autocorrelograms
-def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_size, time_window, burst_threshold):
+def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_size, time_window): #, burst_threshold):
     """
     Adapted function to compute autocorrelograms, burst indices, and first moments (in ms) for multiple clusters, 
     returning them as separate dictionaries. Includes acWin to constrain bins for first moment calculation.
@@ -49,25 +49,25 @@ def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_s
         # Store autocorrelogram in dictionary
         autocorrelograms[cluster] = {'bin_centers': bin_centers, 'counts': counts}
         
-        ### CALCULATE BURST INDICES - CURRENTLY UNUSED
-        # Calculate inter-spike intervals (ISIs) for burst index
-        isis = np.diff(cluster_spike_times)
+#         ### CALCULATE BURST INDICES - CURRENTLY UNUSED
+#         # Calculate inter-spike intervals (ISIs) for burst index
+#         isis = np.diff(cluster_spike_times)
         
-        # Identify burst spikes based on ISIs and the burst threshold using boolean indexing
-        burst_spikes = np.nonzero(isis < burst_threshold)[0]
+#         # Identify burst spikes based on ISIs and the burst threshold using boolean indexing
+#         burst_spikes = np.nonzero(isis < burst_threshold)[0]
         
-        # Make sure each spike is counted only once for burst index calculation
-        burst_spikes = np.concatenate([burst_spikes, burst_spikes + 1])
-        burst_spikes = np.unique(burst_spikes)
+#         # Make sure each spike is counted only once for burst index calculation
+#         burst_spikes = np.concatenate([burst_spikes, burst_spikes + 1])
+#         burst_spikes = np.unique(burst_spikes)
         
-        # Count the unique number of burst spikes
-        num_burst_spikes = burst_spikes.size
+#         # Count the unique number of burst spikes
+#         num_burst_spikes = burst_spikes.size
         
-        # Calculate the burst index
-        burst_index = num_burst_spikes / cluster_spike_times.size
+#         # Calculate the burst index
+#         burst_index = num_burst_spikes / cluster_spike_times.size
         
-        # Store burst index in dictionary
-        burst_indices[cluster] = burst_index
+#         # Store burst index in dictionary
+#         burst_indices[cluster] = burst_index
         
         ### Compute the first moment (mean) of the autocorrelogram, in milliseconds
         # fm_bin_size = bin_size * 1000  # Convert bin size to milliseconds
@@ -90,7 +90,7 @@ def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_s
         # Store first moment in dictionary
         first_moments[cluster] = moment
         
-    return autocorrelograms, first_moments, burst_indices
+    return autocorrelograms, first_moments#, burst_indices
 
 
 def plot_autocorrelogram(session, cluster, autocorrelogram, burst_index, first_moment):
