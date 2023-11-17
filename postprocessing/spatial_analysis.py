@@ -3,6 +3,7 @@ import pandas as pd
 from scipy.ndimage import uniform_filter
 from ipywidgets import widgets, interact
 import matplotlib.pyplot as plt
+from postprocessing.adaptive_smooth import *
 
 
 def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smoothing = True, smoothing_window = None, alpha = None):
@@ -48,16 +49,26 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     # Unpack the 'xy_position' DataFrame from the 'pos_data' dictionary
     positions = pos_data['xy_position']
     
-    # Calculate the minimum and maximum x, y coordinates to determine the field of view (FOV)
+    # Extract raw field of view (FOV) pixel boundaries
     # These coordinates are rounded to the nearest lower and upper bin edges, respectively
-    min_x = np.floor_divide(pos_data['header']['min_x'], bin_length) * bin_length
-    max_x = np.ceil(pos_data['header']['max_x'] / bin_length) * bin_length
-    min_y = np.floor_divide(pos_data['header']['min_y'], bin_length) * bin_length
-    max_y = np.ceil(pos_data['header']['max_y'] / bin_length) * bin_length
+    min_x_raw = np.floor_divide(pos_data['header']['min_x'], bin_length) * bin_length
+    max_x_raw = np.ceil(pos_data['header']['max_x'] / bin_length) * bin_length
+    min_y_raw = np.floor_divide(pos_data['header']['min_y'], bin_length) * bin_length
+    max_y_raw = np.ceil(pos_data['header']['max_y'] / bin_length) * bin_length
+    
+    # They are then scaled so that the NW corner is (0,0) to match the position data
+    min_x = 0
+    max_x = max_x_raw - min_x_raw
+    min_y = 0
+    max_y = max_y_raw - min_y_raw
     
     # Calculate the number of bins along the x and y axes
     x_bins = int((max_x - min_x) / bin_length)
     y_bins = int((max_y - min_y) / bin_length)
+    
+    # Generate the bin edges for the x and y axes based on the FOV
+    x_bin_edges = np.linspace(min_x, max_x, x_bins + 1)
+    y_bin_edges = np.linspace(min_y, max_y, y_bins + 1)
    
     # Impute missing values (NaNs) in the 'positions' DataFrame with their respective mean values
     positions.fillna(positions.mean(), inplace=True)
@@ -65,10 +76,6 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     # Extract x and y coordinates and their corresponding timestamps from the DataFrame
     x_coords, y_coords = positions.values[0, :], positions.values[1, :]
     sample_times = positions.columns.to_numpy()
-    
-    # Generate the bin edges for the x and y axes based on their min and max coordinates
-    x_bin_edges = np.linspace(np.nanmin(x_coords), np.nanmax(x_coords), x_bins + 1)
-    y_bin_edges = np.linspace(np.nanmin(y_coords), np.nanmax(y_coords), y_bins + 1)
     
     # Digitize the x and y coordinates to find which bin they belong to
     x_bin_idx = np.digitize(x_coords, x_bin_edges) - 1
@@ -91,18 +98,22 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
         # Increment the spike count in the respective bins
         np.add.at(rate_maps_dict[cluster], (x_bin_idx[in_bins], y_bin_idx[in_bins]), 1)
         
-    # Smooth the raw rate maps and handle zero occupancy bins
+    # Smooth rate maps
     for cluster, spike_count in rate_maps_dict.items():
         # Set spike count to 0 where occupancy is 0 to avoid division by 0
         spike_count[occupancy == 0] = 0
-        # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
-        rate_map_raw = spike_count / (occupancy * dt + 1e-10)
-        # Apply uniform smoothing to the raw rate map
-        rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
-        # Assign NaN to bins with zero occupancy
-        rate_map_smoothed[occupancy == 0] = np.nan
-        # Update the rate map for the current cluster
-        rate_maps_dict[cluster] = rate_map_smoothed
+
+        if adaptive_smoothing:
+            # Apply adaptive smoothing
+            smoothed_spk, smoothed_pos, smoothed_rate, _ = adaptive_smooth(spike_count, occupancy, alpha)
+            rate_maps_dict[cluster] = smoothed_rate
+        else:
+            # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
+            rate_map_raw = spike_count / (occupancy * dt + 1e-10)
+            # Apply uniform smoothing to the raw rate map
+            rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
+            rate_map_smoothed[occupancy == 0] = np.nan
+            rate_maps_dict[cluster] = rate_map_smoothed        
     
     # Before returning, transpose the arrays to account for an axis transformation that np.histogram2D does
     rate_maps_dict = {cluster: rate_map.T for cluster, rate_map in rate_maps_dict.items()}
