@@ -68,6 +68,7 @@ def handle_empty_maps(spk_map, pos_map):
 def adaptive_smooth(spk_map, pos_map, alpha, max_radius=None):
     """
     Apply adaptive smoothing to rate maps using a flat, circular kernel.
+    Built to match the logic of scan(pix).maps.adaptiveSmooth.m by Thomas Wills
 
     Args:
         spk_map (ndarray): 2D array representing the spike map.

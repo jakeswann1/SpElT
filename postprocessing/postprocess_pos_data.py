@@ -231,7 +231,7 @@ def calculate_speed(pos, pos_sample_rate, pix_per_metre):
     pix_per_metre: conversion factor from pixels to metres
 
     Returns:
-    speed: speed of the movement
+    speed: speed of the movement in cm/s
     """
     speed = np.sqrt((pos.iloc[0, 1:].values - pos.iloc[0, :-1].values)**2 + (pos.iloc[1, 1:].values - pos.iloc[1, :-1].values)**2) * (100 * pos_sample_rate / pix_per_metre)
     speed = np.append(speed, speed[-1])  # Duplicate last value
@@ -247,7 +247,6 @@ def process_position_data(posdata, max_speed, smoothing_window_size):
     # Filter points for those moving impossibly fast and set led_pos_x to NaN
     ppm = int(posdata['header']['scaled_ppm'])
     pos_sample_rate = float(posdata['header']['sample_rate'][:-3])
-    max_speed = 4 # Hard-coded for now
     
     max_pix_per_sample = max_speed*ppm/pos_sample_rate;
     n_jumpy, led_pos = led_speed_filter(led_pos, max_pix_per_sample*100)

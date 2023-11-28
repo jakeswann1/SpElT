@@ -93,7 +93,7 @@ def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_s
     return autocorrelograms, first_moments#, burst_indices
 
 
-def plot_autocorrelogram(session, cluster, autocorrelogram, burst_index, first_moment):
+def plot_autocorrelogram(session, cluster, autocorrelogram, first_moment): #burst_index,
     """
     Function to plot an autocorrelogram for a given cluster and annotate it with the burst index.
     
@@ -110,7 +110,7 @@ def plot_autocorrelogram(session, cluster, autocorrelogram, burst_index, first_m
     
     # Plot the autocorrelogram
     ax.bar(autocorrelogram['bin_centers'], autocorrelogram['counts'], width=0.001)  # Assuming bin size of 1ms
-    ax.set_title(f"{session} Cluster {cluster}: Burst Index = {burst_index:.3f}; First Moment = {first_moment:.3f}")
+    ax.set_title(f"{session} Cluster {cluster}:  First Moment = {first_moment:.3f}") #Burst Index = {burst_index:.3f};
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Counts")
     
