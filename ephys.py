@@ -104,12 +104,13 @@ class ephys:
         self.max_speed = 5
         self.smoothing_window_size = 3
     
-    def load_metadata(self, trial_list):
+    def load_metadata(self, trial_list, output_flag = True):
         """
         Loads the metadata for a specified trial. Currently only a subset of lines from the Dacq .set file
 
         Args:
             trial_iterator (int): The index of the trial for which metadata is to be loaded.
+            output_flag (bool): if True, print a statement when loading the set file (default True)
 
         Populates:
             self.metadata (list): A list that stores metadata for each trial. The metadata for the specified trial is added at the given index.
@@ -123,8 +124,9 @@ class ephys:
             if self.recording_type == 'nexus':
                 # Get path of trial to load
                 path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
-
-                print(f'Loading set file: {path}')
+                
+                if output_flag is True:
+                    print(f'Loading set file: {path}')
 
                 with open(path, 'rb') as fid:
                     setHeader = {}
@@ -249,23 +251,22 @@ class ephys:
                         'xy_position': xy_pos,
                         'led_positions': led_pos,
                         'led_pixel_size': led_pix,
-                        'speed': speed,
+                        'speed': speed, #in cm/s
                         'direction': direction,
                         'direction_from_displacement': direction_disp,
                         'pos_sampling_rate': pos_sampling_rate
                     }
                     
 
-    def load_lfp(self, trial_list, sampling_rate, channels = None, reload_flag = False, bandpass_filter = False):
+    def load_lfp(self, trial_list, sampling_rate, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = False):
         """
         Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
 
         Args:
             trial_list (int or array-like): The index of the trial for which LFP data is to be loaded.
             sampling_rate (int): The desired sampling rate for the LFP data.
-            start_time (int, optional): The start time from which LFP data is to be extracted. Default to 0
-            end_time (int, optional): The end time until which LFP data is to be extracted. Default is max t
             channels (list of int, optional): A list of channel IDs from which LFP data is to be extracted. Default is all
+            scale_to_uv (bool, optional): choose whether to scale raw LFP trace to microvolts based on the gain in the .set file. Default True
             reload_flag (bool, optional): if true, forces reloading of data. If false, only loads data for trials with no LFP data loaded. Default False
             bandpass_filter (bool, optional): option to apply a bandpass filter at 1-300Hz. Default False
 
@@ -302,12 +303,34 @@ class ephys:
                     
                 lfp_data = recording.get_traces(start_frame = 0, end_frame = recording.get_num_frames()-1, channel_ids = channels)
                 lfp_timestamps = recording.get_times()
+                
+                # Scale traces to uv - method taken from getLFPV.m by Roddy Grieves 2018
+                # Raw file samples are stored with 16-bit resolution, so range from -32768 to 32767
+                if scale_to_uv is True:
+                    # Load .set metadata
+                    self.load_metadata(trial_iterator, output_flag = False)
+                    set_header = self.metadata[trial_iterator]
+                    # Get ADC for recording
+                    adc = int(set_header['ADC_fullscale_mv'])
+                    
+                    # Get channel gains
+                    gains = np.empty(len(channels))
+                    for n, channel in enumerate(channels):
+                        gains[n] = set_header[f'gain_ch_{channel}']
+                    
+                    # Scale traces
+                    lfp_data = lfp_data / 32768 * adc * 1000 
+                    lfp_data = lfp_data / gains.T
+                        
+                else:
+                    gains = None
 
                 self.lfp_data[trial_iterator] = {
                 'data': lfp_data,
                 'timestamps': lfp_timestamps,
                 'sampling_rate': sampling_rate,
-                'channels': channels
+                'channels': channels,
+                'gains': gains
                 }
 
         
