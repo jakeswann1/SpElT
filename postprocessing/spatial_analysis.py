@@ -48,6 +48,8 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     
     # Unpack the 'xy_position' DataFrame from the 'pos_data' dictionary
     positions = pos_data['xy_position']
+    # Unpack speed
+    speed = pos_data['speed']
     
     # Extract raw field of view (FOV) pixel boundaries
     # These coordinates are rounded to the nearest lower and upper bin edges, respectively
@@ -84,6 +86,12 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     # Clip the bin indices to lie within the valid range [0, number_of_bins - 1]
     x_bin_idx = np.clip(x_bin_idx, 0, x_bins - 1)
     y_bin_idx = np.clip(y_bin_idx, 0, y_bins - 1)
+    
+    # Filter xy positions for speed <2.5cm/s
+    # THRESHOLD HARD_CODED FOR NOW
+    speed_mask = speed >= 2.5
+    x_coords = x_coords[speed_mask]
+    y_coords = y_coords[speed_mask]
     
     # Compute the 2D occupancy map using a 2D histogram
     occupancy, _, _ = np.histogram2d(x_coords, y_coords, bins=[x_bin_edges, y_bin_edges])
@@ -122,13 +130,13 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     return rate_maps_dict, occupancy
 
 
-def plot_cluster_across_sessions(rate_maps_dict, cluster_id, session="N/A"):
+def plot_cluster_across_sessions(rate_maps_dict, cluster_id, session="N/A", age = None):
     n_sessions = sum(cluster_id in sub_dict for sub_dict in rate_maps_dict.values())
     if n_sessions == 0:
         print(f"Cluster {cluster_id} is not found in any session.")
         return
     fig, axes = plt.subplots(1, n_sessions, figsize=(15, 5))
-    fig.suptitle(f"Rate maps for Session {session} Cluster {cluster_id}")
+    fig.suptitle(f"Rate maps for Session {session} Cluster {cluster_id} Age P{age}")
     if n_sessions == 1:
         axes = [axes]
     ax_idx = 0
