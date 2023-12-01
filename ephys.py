@@ -258,7 +258,7 @@ class ephys:
                     }
                     
 
-    def load_lfp(self, trial_list, sampling_rate, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = False):
+    def load_lfp(self, trial_list, sampling_rate, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = None):
         """
         Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
 
@@ -268,7 +268,7 @@ class ephys:
             channels (list of int, optional): A list of channel IDs from which LFP data is to be extracted. Default is all
             scale_to_uv (bool, optional): choose whether to scale raw LFP trace to microvolts based on the gain in the .set file. Default True
             reload_flag (bool, optional): if true, forces reloading of data. If false, only loads data for trials with no LFP data loaded. Default False
-            bandpass_filter (bool, optional): option to apply a bandpass filter at 1-300Hz. Default False
+            bandpass_filter (2-element array, optional): apply bandpass filter with min and max frequency. Default None. e.g. [5 100] would bandpass filter @ 5-100Hz
 
         Populates:
             self.lfp_data (list): A list that stores LFP data for each trial. The LFP data for the specified trial is added at the given index.
@@ -293,9 +293,11 @@ class ephys:
                 # Resample
                 recording = spre.resample(recording, sampling_rate)
 
-                if bandpass_filter is True:
+                if bandpass_filter is not None:
                     # Bandpass filter
-                    recording = spre.bandpass_filter(recording, freq_min = 1, freq_max = 300)
+                    recording = spre.bandpass_filter(recording, 
+                                                     freq_min = bandpass_filter[0], 
+                                                     freq_max = bandpass_filter[1])
 
                 # Set channels to load to list of str to match recording object - not ideal but other fixes are harder
                 if channels is not None:
