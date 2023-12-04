@@ -303,7 +303,8 @@ class ephys:
                 if channels is not None:
                     channels = list(map(str, channels))
                     
-                lfp_data = recording.get_traces(start_frame = 0, end_frame = recording.get_num_frames()-1, channel_ids = channels)
+                lfp_data = recording.get_traces(start_frame = None, end_frame = None, channel_ids = channels)
+                
                 lfp_timestamps = recording.get_times()
                 
                 # Scale traces to uv - method taken from getLFPV.m by Roddy Grieves 2018
