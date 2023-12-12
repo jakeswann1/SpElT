@@ -98,14 +98,18 @@ def drop_extreme_cycles(df):
     df_transposed['Traversal Index'] = df_transposed[traversal_index_row]
 
     # Group by 'Traversal Index' and find columns to drop
-    columns_to_drop = []
+    columns_to_drop = set()
     for name, group in df_transposed.groupby('Traversal Index'):
-        min_cycle_index_col = group['Cycle Index'].astype(float).idxmin()
-        max_cycle_index_col = group['Cycle Index'].astype(float).idxmax()
-        columns_to_drop.extend([min_cycle_index_col, max_cycle_index_col])
+        # Find min and max cycle number in each group
+        cycle_min = np.nanmin(np.unique(group['Cycle Index']))
+        cycle_max = np.nanmax(np.unique(group['Cycle Index']))
+        
+        # Find columns where 'Cycle Index' is equal to cycle_min or cycle_max
+        cols_to_drop = group[(group['Cycle Index'] == cycle_min) | (group['Cycle Index'] == cycle_max)].index
+        columns_to_drop.update(cols_to_drop)
 
-    # Drop the identified columns
-    df_dropped = df_transposed.drop(columns=columns_to_drop).drop(['Cycle Index', 'Traversal Index'], axis=1)
+    # Drop the identified columns and the added rows
+    df_dropped = df_transposed.drop(index=list(columns_to_drop))
 
     # Transpose back to the original format
     return df_dropped.T
