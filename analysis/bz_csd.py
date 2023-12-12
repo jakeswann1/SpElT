@@ -118,35 +118,31 @@ def calculate_csd_df(arm_cycle_df):
     
     # Add indices to output dataframe
     csd_index = [label + '_csd' for label in arm_cycle_df.drop(non_ephys_labels).index]
-    csd_df_empty = pd.DataFrame(np.nan, index = csd_index, columns = arm_cycle_df.columns)
-    csd_df = arm_cycle_df.append(csd_df_empty, ignore_index = False)
+    csd_df_empty = pd.DataFrame(np.nan, index=csd_index, columns=arm_cycle_df.columns)
+    csd_df = pd.concat([arm_cycle_df, csd_df_empty], axis=0)
     
     # Get total number of traversals
-    traversals = int(max(arm_cycle_df.loc(axis = 0)['Traversal Index']))
+    traversals = int(max(arm_cycle_df.loc(axis=0)['Traversal Index']))
     
     # Loop through traversals and calculate CSD
     for traversal in range(traversals):
-        
         # Select traversal data from dataframe
         traversal_df = arm_cycle_df.loc[:, arm_cycle_df.loc['Traversal Index'] == traversal]
         
         # Calculate CSD
-        traversal_csd = bz_csd(traversal_df.drop(non_ephys_labels, axis = 0),
-                              plot_csd = False,
-                              plot_lfp = False)
+        traversal_csd = bz_csd(traversal_df.drop(non_ephys_labels, axis=0),
+                               plot_csd=False, plot_lfp=False)
         
         # If CSD calculation failed
-        if traversal_csd == None:
-            pass
-            # print(f'Skipping traversal {traversal}, not enough data')
+        if traversal_csd is None:
+            pass  # Optionally handle this case
         else:
             # CSD has two fewer samples than LFP, so align CSD to correct timestamps and add to frame
             csd_df.loc[csd_index, traversal_df.columns[1:-1]] = traversal_csd['data'].T
-
         
     return csd_df, csd_index
 
-def plot_csd_theta_phase(arm_csd_df, arm_csd_labels, arm = ''):
+def mean_csd_theta_phase(arm_csd_df, arm_csd_labels):
     '''
     Takes the processed dataframe with CSD calculated, along with labels specifying which rows refer to these data
     Also takes optional string for displaying arm identity on plot
@@ -183,24 +179,38 @@ def plot_csd_theta_phase(arm_csd_df, arm_csd_labels, arm = ''):
     # Create a new DataFrame from the dictionary
     mean_csd_data = pd.DataFrame(mean_columns)
     
+    return mean_csd_data
     
+def plot_csd_theta_phase(mean_csd_data, title = '', save_path = None):
+    '''
+    Takes output of the previous function, and plots mean CSD across theta phase using pltcontourf
+    arm
+    '''
+
     # Plot using contourf as in bz_csd function
     # Preparing the meshgrid for plotting
     channels = np.arange(mean_csd_data.shape[0])
-    theta_phases = np.arange(mean_csd_data.shape[1])
+    theta_phases = np.arange(mean_csd_data.shape[1]) * (2 * np.pi / mean_csd_data.shape[1])
     X, Y = np.meshgrid(theta_phases, channels)
 
     cmax = np.nanmax(np.abs(mean_csd_data))
     # Plotting using contourf
     plt.figure(figsize=(10, 6))
     contour = plt.contourf(X, Y, mean_csd_data.values, 40, cmap='jet', vmin=-cmax, vmax=cmax)  
+
     plt.colorbar(contour)
     # Adding labels and title
-    plt.xlabel('Theta Phase Bins')
-    plt.ylabel('Channels')
-    plt.title(f'Current Source Density across Theta Phase - {arm} Arm')
+    plt.xticks(np.linspace(0, 2 * np.pi, 5), 
+           ['0', r'$\frac{\pi}{2}$', r'$\pi$', r'$\frac{3\pi}{2}$', r'$2\pi$'])
+    channel_depths = channels * -100
+    plt.yticks(channels, channel_depths)
+    plt.gca().invert_yaxis()
+    plt.xlabel('Theta Phase')
+    plt.ylabel('Depth (μm)')
+    plt.title(f'Current Source Density across Theta Phase - {title}')
+    
+    if save_path is not None:
+        plt.savefig(save_path)
 
     # Show the plot
     plt.show()
-
-    return mean_csd_data
