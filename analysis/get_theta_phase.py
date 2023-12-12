@@ -26,23 +26,68 @@ def get_theta_phase(lfp, sampling_rate, peak_freq, filt_half_bandwidth=2, power_
     # Extract instantaneous phase using the Hilbert transform
     analytic_signal = hilbert(filtered_lfp)
     theta_phase = np.angle(analytic_signal)
-    theta_phase = np.mod(theta_phase, 2 * np.pi)  # Adjust the phase here
+    # Wrap into the range 0 - 2pi, so that oscillation starts at the peak (convention).
+    theta_phase = np.mod(theta_phase, 2 * np.pi)  
 
     # Identify and handle phase transitions and slips
     phase_transitions = np.diff(theta_phase) < -np.pi
     phase_transitions = np.hstack(([False], phase_transitions, [False]))
     cycle_numbers = np.cumsum(phase_transitions[:-1])
 
-    # Calculate power per cycle
+    ### Remove bad data
+    # Calculate power per cycle and identify bad power cycles
     power = filtered_lfp ** 2
     power_per_cycle = np.bincount(cycle_numbers, power) / np.bincount(cycle_numbers)
-
-    # Handle low power cycles
     power_threshold = np.nanpercentile(power_per_cycle, power_thresh)
     bad_power_cycles = np.where(power_per_cycle < power_threshold)[0]
-    bad_power_indices = np.isin(cycle_numbers, bad_power_cycles)
 
-    # Set low power cycles to NaN
-    theta_phase[bad_power_indices] = np.nan
+    # Calculate cycle lengths and identify bad length cycles
+    cycle_lengths = np.bincount(cycle_numbers)
+    pass_band = np.array([peak_freq - filt_half_bandwidth, peak_freq + filt_half_bandwidth])
+    cycle_length_lim = np.ceil(1 / pass_band * sampling_rate).astype(int)
+    bad_length_cycles = np.where((cycle_lengths < cycle_length_lim[1]) | (cycle_lengths > cycle_length_lim[0]))[0]
+
+    # Combine bad power and length cycles
+    bad_cycles = np.union1d(bad_power_cycles, bad_length_cycles)
+
+    # Mark theta phase and cycle numbers corresponding to bad cycles as NaN
+    bad_cycle_indices = np.isin(cycle_numbers, bad_cycles)
+    theta_phase[bad_cycle_indices] = np.nan
+    cycle_numbers = cycle_numbers.astype(float) # Convert to float to allow incluion of NaN
+    cycle_numbers[bad_cycle_indices] = np.nan
 
     return theta_phase, cycle_numbers
+
+def get_spike_theta_phase(lfp, spike_times, sampling_rate, peak_freq, filt_half_bandwidth=2, power_thresh=5):
+    """
+    Calculate the theta phase of spikes based on the LFP.
+
+    Parameters:
+    - lfp: Local Field Potential time series.
+    - spike_times: Times (in seconds) at which the spikes occurred.
+    - sampling_rate: The sampling rate of the LFP.
+    - peak_freq: The central frequency around which the LFP is filtered.
+    - filt_half_bandwidth: Half bandwidth for filtering. Default is 2 Hz.
+    - power_thresh: Threshold (percentile) for minimum power per cycle. Default is 5.
+
+    Returns:
+    - spike_phases: Theta phase (in radians) of spikes.
+    """
+
+    theta_phase, cycle_numbers = get_theta_phase(lfp, sampling_rate, peak_freq, filt_half_bandwidth, power_thresh)
+    
+    # MAP SPIKE TIMES TO PHASE
+    spike_indices = (spike_times * sampling_rate).astype(int)
+
+    # Initialize spike_phases array
+    spike_phases = np.zeros_like(spike_times)
+
+    # Handle spike times within the range of the LFP data
+    in_bounds_indices = spike_indices < len(theta_phase)
+    spike_phases[in_bounds_indices] = theta_phase[spike_indices[in_bounds_indices]]
+
+    # Set the phase as np.nan for out-of-bounds spike times
+    out_of_bounds_indices = ~in_bounds_indices
+    spike_phases[out_of_bounds_indices] = np.nan
+
+    return spike_phases
