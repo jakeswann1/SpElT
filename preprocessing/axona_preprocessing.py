@@ -97,8 +97,9 @@ def load_pickle(file_path):
     return data
 
 def generate_tetrodes(n):
-    # Returns a spikeinterface ProbeGroup object with n tetrodes spaced 300um apart vertically
-    
+    '''
+    Returns a spikeinterface ProbeGroup object with n tetrodes spaced 300um apart vertically
+    '''
     import numpy as np
     from probeinterface import generate_tetrode, ProbeGroup
     from probeinterface import write_prb
@@ -116,9 +117,11 @@ def generate_tetrodes(n):
     return probegroup
 
 def preprocess(recording, recording_name, base_folder, electrode_type, num_channels):
-    # Adds a Probe object to a Spikeinterface recording object
-    # Cuts the recording to 'num_channels' channels
-    # Saves the recording to a preprocessing folder
+    '''
+    Adds a Probe object to a Spikeinterface recording object
+    Cuts the recording to 'num_channels' channels
+    Saves the recording to a preprocessing folder
+    '''
     import warnings
     warnings.filterwarnings("ignore", category=DeprecationWarning) #gets rid of some annoying warnings
     from probeinterface import read_prb
