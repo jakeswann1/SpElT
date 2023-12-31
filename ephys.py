@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from tkinter import filedialog
 
 from session_utils import gs_to_df
 
@@ -55,14 +54,25 @@ class ephys:
         numpy, pandas
     '''
 
-    def __init__(self, recording_type, path = None):
+    def __init__(self, recording_type, path):
+        """
+        Initialize the ephys object.
+
+        Parameters:
+        recording_type (str): The type of recording.
+        path (str): The path to the recording.
+
+        Raises:
+        ValueError: If no path is specified.
+
+        """
+        
         self.recording_type = recording_type
         
         if path:
             self.recording_path = path
         else:
-            print('Locate path to recording session')
-            self.recording_path = filedialog.askdirectory()
+            raise ValueError('No path specified')
         
         # Get date and animal ID from path
         self.date = self.recording_path.split('/')[-1]
@@ -242,8 +252,8 @@ class ephys:
                     
                     # Divide by sampling rate to give dataframe columns in seconds
                     xy_pos.columns /= pos_sampling_rate
-                    led_pos.columns/= pos_sampling_rate
-                    led_pix.columns/= pos_sampling_rate
+                    led_pos.columns /= pos_sampling_rate
+                    led_pix.columns /= pos_sampling_rate
                     
                     # Populate processed pos data
                     self.pos_data[trial_iterator] = {
