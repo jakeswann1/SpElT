@@ -111,7 +111,8 @@ def plot_autocorrelogram(session, cluster, autocorrelogram, first_moment): #burs
     # Plot the autocorrelogram
     ax.bar(autocorrelogram['bin_centers'], autocorrelogram['counts'], width=0.001)  # Assuming bin size of 1ms
     ax.set_title(f"{session} Cluster {cluster}:  First Moment = {first_moment:.3f}") #Burst Index = {burst_index:.3f};
-    ax.set_xlabel("Time (s)")
+    ax.set_xticklabels(np.round(ax.get_xticks() * 1000))  # Convert x tick values to milliseconds
+    ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Counts")
     
     return fig, ax
