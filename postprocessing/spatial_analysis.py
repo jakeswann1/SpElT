@@ -32,13 +32,19 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
         alpha (float, optional): The alpha parameter for adaptive smoothing. Defaults to None.
         
     Returns:
-        tuple: A tuple containing two elements:
+        tuple: A tuple containing four elements:
             - rate_maps_dict (dict): A dictionary containing the smoothed rate maps 
                                      for each cluster. The keys are cluster identifiers, 
                                      and the values are 2D NumPy arrays representing the 
                                      rate maps.
             - occupancy (ndarray): A 2D NumPy array representing the time spent by the 
                                    animal in each spatial bin.
+            - max_rates_dict (dict): A dictionary containing the maximum firing rates 
+                                     for each cluster. The keys are cluster identifiers, 
+                                     and the values are lists of maximum firing rates.
+            - mean_rates_dict (dict): A dictionary containing the mean firing rates 
+                                      for each cluster. The keys are cluster identifiers, 
+                                      and the values are lists of mean firing rates.
     
     Raises:
         ValueError: If the input dictionaries `spike_data` or `pos_data` are empty.
@@ -50,6 +56,8 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     positions = pos_data['xy_position']
     # Unpack speed
     speed = pos_data['speed']
+    # Unpack position sampling rate
+    pos_sampling_rate = pos_data['pos_sampling_rate']
     
     # Extract raw field of view (FOV) pixel boundaries
     # These coordinates are rounded to the nearest lower and upper bin edges, respectively
@@ -93,11 +101,15 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     x_coords = x_coords[speed_mask]
     y_coords = y_coords[speed_mask]
     
-    # Compute the 2D occupancy map using a 2D histogram
+    # Compute the 2D occupancy map using a 2D histogram and normalize by the sampling rate to give seconds per bin
+    # This ensures that rate maps are in units of Hz
     occupancy, _, _ = np.histogram2d(x_coords, y_coords, bins=[x_bin_edges, y_bin_edges])
+    occupancy /= pos_sampling_rate
         
     # Initialize the rate maps dictionary with zeros using cluster keys
     rate_maps_dict = {cluster: np.zeros_like(occupancy) for cluster in spike_data.keys()}
+    max_rates_dict = {cluster: [np.nan] for cluster in spike_data.keys()}
+    mean_rates_dict = {cluster: [np.nan] for cluster in spike_data.keys()}
         
     # Populate the rate maps based on spike times
     for cluster, spike_times in spike_data.items():
@@ -118,19 +130,36 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
         else:
             # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
             rate_map_raw = spike_count / (occupancy * dt + 1e-10)
+
             # Apply uniform smoothing to the raw rate map
             rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
             rate_map_smoothed[occupancy == 0] = np.nan
-            rate_maps_dict[cluster] = rate_map_smoothed        
-    
+            rate_maps_dict[cluster] = rate_map_smoothed   
+
+        # Calculate max and mean firing rates
+        max_rates_dict[cluster] = [np.nanmax(rate_maps_dict[cluster])]
+        mean_rates_dict[cluster] = [np.nanmean(rate_maps_dict[cluster])]
+                
+
     # Before returning, transpose the arrays to account for an axis transformation that np.histogram2D does
     rate_maps_dict = {cluster: rate_map.T for cluster, rate_map in rate_maps_dict.items()}
     occupancy = occupancy.T
     
-    return rate_maps_dict, occupancy
+    return rate_maps_dict, occupancy, max_rates_dict, mean_rates_dict
 
 
-def plot_cluster_across_sessions(rate_maps_dict, cluster_id, session="N/A", age = None):
+def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mean_rates_dict, session="N/A", age=None):
+    """
+    Plots rate maps for a given cluster across multiple sessions.
+
+    Args:
+        rate_maps_dict (dict): A dictionary containing rate maps for each session.
+        cluster_id (int): The ID of the cluster to plot.
+        max_rates_dict (dict): A dictionary containing maximum firing rates for each session and cluster.
+        mean_rates_dict (dict): A dictionary containing mean firing rates for each session and cluster.
+        session (str, optional): The session identifier. Defaults to "N/A".
+        age (int, optional): The age of the cluster. Defaults to None.
+    """
     n_sessions = sum(cluster_id in sub_dict for sub_dict in rate_maps_dict.values())
     if n_sessions == 0:
         print(f"Cluster {cluster_id} is not found in any session.")
@@ -144,7 +173,7 @@ def plot_cluster_across_sessions(rate_maps_dict, cluster_id, session="N/A", age 
         if cluster_id in sub_dict:
             rate_map = sub_dict[cluster_id]
             im = axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower')
-            axes[ax_idx].set_title(f"Trial {session_key}")
+            axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id][0]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id][0]:.2f} Hz]")
             axes[ax_idx].invert_yaxis() # Needed to match rate maps to theta phase plots
             # plt.colorbar(im, ax=axes[ax_idx])
             ax_idx += 1
