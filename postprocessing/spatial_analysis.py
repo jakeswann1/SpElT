@@ -173,7 +173,7 @@ def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mea
         if cluster_id in sub_dict:
             rate_map = sub_dict[cluster_id]
             im = axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower')
-            axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id][0]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id][0]:.2f} Hz]")
+            axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id][0]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id][0]:.2f} Hz")
             axes[ax_idx].invert_yaxis() # Needed to match rate maps to theta phase plots
             # plt.colorbar(im, ax=axes[ax_idx])
             ax_idx += 1
