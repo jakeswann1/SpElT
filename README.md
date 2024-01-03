@@ -6,11 +6,11 @@
 •	Development by [Jake Swann](https://github.com/jakeswann1/) @ Wills-Cacucci Lab, UCL
 
 # Usage
-### This repo is designed to be used with the following workflow:
+### This repo is currently designed to be used with the following workflow:
 To extract and analyse CA1 pyramidal cell spike data:
 1. Record raw axona files - _.bin_ and _.set_ files are required for each recording trial
 2. Run _pyScan.preprocessing.loop_axona_spikeinterface.ipynb_
-•	This runs collates individual trials into sessions, runs kilosort 2 and extracts position data
+•	This runs collates individual trials into sessions, runs Kilosort 2 and extracts position data
 3. Manually curate spikes in phy
 4. Run _pyScan.postprocessing.Check Cell Identity.ipynb_
 •	This selects candidate pyramidal cells and saves their cluster IDs to a clusters_inc.npy
