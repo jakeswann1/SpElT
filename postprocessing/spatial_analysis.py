@@ -175,14 +175,9 @@ def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mea
             im = axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower')
             axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id][0]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id][0]:.2f} Hz")
             axes[ax_idx].invert_yaxis() # Needed to match rate maps to theta phase plots
+            axes[ax_idx].axis('off')
             # plt.colorbar(im, ax=axes[ax_idx])
             ax_idx += 1
-
-def interactive_cluster_plot(rate_maps_dict, title_prefix=""):
-    unique_clusters = set(cluster for sub_dict in rate_maps_dict.values() for cluster in sub_dict.keys())
-    @interact(cluster_id=widgets.Dropdown(options=sorted(unique_clusters), description='Cluster ID:', disabled=False))
-    def plot_selected_cluster(cluster_id):
-        plot_cluster_across_sessions(rate_maps_dict, cluster_id, title_prefix)
 
         
 from scipy.stats import entropy

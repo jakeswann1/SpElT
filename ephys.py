@@ -90,8 +90,9 @@ class ephys:
         # Load session information from session.csv which is within the sorting folder as dataframe
         self.session = pd.read_csv(f'{self.sorting_path}/session.csv', index_col = 0)
         
-        # Collect each trial name into a numpy array
+        # Collect each trial name
         self.trial_list = self.session.iloc[:,1].to_list()
+        # Collect each trial number
         self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
         
         # Collect trial offsets for aligning spike data
