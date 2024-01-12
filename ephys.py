@@ -81,7 +81,7 @@ class ephys:
         
         # Get age and probe info from Google Sheet
         df = gs_to_df('https://docs.google.com/spreadsheets/d/1_Xs5i-rHNTywV-WuQ8-TZliSjTxQCCqGWOD2AL_LIq0/edit#gid=0')
-        self.age = df['Age'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
+        self.age = int(df['Age'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0])
         self.probe_type = df['probe_type'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
         self.probe_channels = df['num_channels'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
 
