@@ -6,3 +6,4 @@ __pycache__/
 analysis/.ipynb_checkpoints/
 
 .ipynb_checkpoints/
+.vscode/settings.json

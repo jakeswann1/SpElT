@@ -131,14 +131,14 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
             # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
             rate_map_raw = spike_count / (occupancy * dt + 1e-10)
 
-            # Apply uniform smoothing to the raw rate map
-            rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
-            rate_map_smoothed[occupancy == 0] = np.nan
-            rate_maps_dict[cluster] = rate_map_smoothed   
+            # # Apply uniform smoothing to the raw rate map
+            # rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
+            # rate_map_smoothed[occupancy == 0] = np.nan
+            rate_maps_dict[cluster] = rate_map_raw
 
         # Calculate max and mean firing rates
-        max_rates_dict[cluster] = [np.nanmax(rate_maps_dict[cluster])]
-        mean_rates_dict[cluster] = [np.nanmean(rate_maps_dict[cluster])]
+        max_rates_dict[cluster] = np.nanmax(rate_maps_dict[cluster])
+        mean_rates_dict[cluster] = np.nanmean(rate_maps_dict[cluster])
                 
 
     # Before returning, transpose the arrays to account for an axis transformation that np.histogram2D does
@@ -148,7 +148,7 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     return rate_maps_dict, occupancy, max_rates_dict, mean_rates_dict
 
 
-def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mean_rates_dict, session="N/A", age=None):
+def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mean_rates_dict, spatial_info_dict, session="N/A", age=None):
     """
     Plots rate maps for a given cluster across multiple sessions.
 
@@ -161,68 +161,31 @@ def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mea
         age (int, optional): The age of the cluster. Defaults to None.
     """
     n_sessions = sum(cluster_id in sub_dict for sub_dict in rate_maps_dict.values())
+    
     if n_sessions == 0:
         print(f"Cluster {cluster_id} is not found in any session.")
         return
+    
+    # Create a figure with subplots for each session
     fig, axes = plt.subplots(1, n_sessions, figsize=(15, 5))
-    fig.suptitle(f"Rate maps for Session {session} Cluster {cluster_id} Age P{age}")
+    fig.suptitle(f"Rate maps for Session {session} Cluster {cluster_id} Age P{age}", y = 1.1)
+    
+    # Convert axes to list if there is only one session
     if n_sessions == 1:
         axes = [axes]
     ax_idx = 0
+    
+    # Plot rate maps for each session
     for session_key, sub_dict in rate_maps_dict.items():
         if cluster_id in sub_dict:
             rate_map = sub_dict[cluster_id]
             im = axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower')
-            axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id][0]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id][0]:.2f} Hz")
+            axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id]:.2f} Hz\n Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f} bits/spike")
             axes[ax_idx].invert_yaxis() # Needed to match rate maps to theta phase plots
             axes[ax_idx].axis('off')
             # plt.colorbar(im, ax=axes[ax_idx])
             ax_idx += 1
 
-        
-from scipy.stats import entropy
-
-def calculate_skaggs_information(rate_maps, occupancy, dt=1.0):
-    """
-    Calculate Skaggs' spatial information score for given rate maps and occupancy.
-    
-    Parameters:
-    - rate_maps: dict
-        Dictionary containing smoothed rate maps organized by clusters.
-    - occupancy: np.ndarray
-        2D array indicating occupancy of each bin.
-    - dt: float
-        Time window for spike count.
-        
-    Returns:
-    - skaggs_info_dict: dict
-        Dictionary containing Skaggs' spatial information scores organized by clusters.
-    """
-    
-    skaggs_info_dict = {}
-    
-    # Calculate the total time spent in the environment
-    total_time = np.nansum(occupancy) * dt
-
-    for cluster, rate_map in rate_maps.items():
-        
-        # Calculate mean firing rate across all bins
-        mean_firing_rate = np.nansum(rate_map * occupancy) / total_time
-
-        # Calculate probability of occupancy for each bin
-        prob_occupancy = occupancy / np.nansum(occupancy)
-
-        # Calculate Skaggs' spatial information score
-        non_zero_idx = (rate_map > 0) & (prob_occupancy > 0)
-        skaggs_info = np.nansum(
-            prob_occupancy[non_zero_idx] *
-            rate_map[non_zero_idx] *
-            np.log2(rate_map[non_zero_idx] / mean_firing_rate)
-        )
-
-        skaggs_info_dict[cluster] = skaggs_info
-            
-    return skaggs_info_dict
 
 def speed_filter_spikes(current_trial_spikes, speed_data, position_sampling_rate, speed_lower_bound, speed_upper_bound):
     """
