@@ -1,9 +1,9 @@
 
-analysis/__pycache__/
-
+**/__pycache__/
 __pycache__/
 
-analysis/.ipynb_checkpoints/
-
+**/.ipynb_checkpoints/
 .ipynb_checkpoints/
+
 .vscode/settings.json
+.vscode
