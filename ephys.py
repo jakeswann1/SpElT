@@ -272,6 +272,7 @@ class ephys:
     def load_lfp(self, trial_list, sampling_rate, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = None):
         """
         Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
+        Masks clipped values and scales to microvolts based on the gain in the .set file
 
         Args:
             trial_list (int or array-like): The index of the trial for which LFP data is to be loaded.
@@ -304,6 +305,8 @@ class ephys:
                 # Resample
                 recording = spre.resample(recording, sampling_rate)
 
+                
+
                 if bandpass_filter is not None:
                     # Bandpass filter
                     recording = spre.bandpass_filter(recording, 
@@ -314,9 +317,12 @@ class ephys:
                 if channels is not None:
                     channels = list(map(str, channels))
                     
-                lfp_data = recording.get_traces(start_frame = None, end_frame = None, channel_ids = channels)
+                lfp_data = recording.get_traces(start_frame = None, end_frame = None, channel_ids = channels).astype(float)
                 
                 lfp_timestamps = recording.get_times()
+
+                # Mask clipped values of +- 32000
+                clip_mask = np.logical_or(lfp_data > 32000, lfp_data < -32000)
                 
                 # Scale traces to uv - method taken from getLFPV.m by Roddy Grieves 2018
                 # Raw file samples are stored with 16-bit resolution, so range from -32768 to 32767
@@ -342,6 +348,7 @@ class ephys:
                 self.lfp_data[trial_iterator] = {
                 'data': lfp_data,
                 'timestamps': lfp_timestamps,
+                'clip_mask': clip_mask,
                 'sampling_rate': sampling_rate,
                 'channels': channels,
                 'gains': gains
@@ -420,5 +427,53 @@ class ephys:
             }
         
         
+    def load_mean_waveforms(self, clusters_to_load = None, scale = True):
+        """
+        Load waveforms for specified clusters.
 
+        Args:
+            clusters_to_load (list or None): List of cluster IDs to load waveforms for. If None, waveforms will be loaded for all clusters.
+            n_spikes (int): Number of spikes to load for each cluster.
+            scale (bool): Flag indicating whether to scale the waveforms to microvolts.
 
+        Populates:
+            self.waveform_data (dict): A dictionary that stores mean waveforms for specified clusters.
+        """
+        from phylib.io.model import load_model
+
+        # Initialise waveform_data
+        self.mean_waveforms = {}
+
+        # Get path to params.py
+        params_path = f'{self.sorting_path}/params.py'
+
+        # Load the TemplateModel.
+        model = load_model(params_path)
+
+        # Load metadata for scaling traces (gains will load from the first trial)
+        self.load_metadata(0, output_flag=False)
+        set_header = self.metadata[0]
+        # Get ADC for recording
+        adc = int(set_header['ADC_fullscale_mv'])
+
+        if clusters_to_load is None:
+            clusters_to_load = self.spike_data['cluster_info'].index
+            print('No clusters specified, loading mean waveforms for all clusters')
+
+        for cluster in clusters_to_load:
+            
+            # Get the best mean waveform for the cluster from phy
+            best_mean_waveform = model.get_cluster_mean_waveforms(cluster)['mean_waveforms'][:,0]
+            best_channel = model.get_cluster_mean_waveforms(cluster)['channel_ids'][0]
+            
+            # Scale the waveforms to microvolts.
+            if scale is True:
+                # Get channel gains
+                gain = int(set_header[f'gain_ch_{best_channel}'])
+                # Scale traces to uv using logic as in ephys.load_lfp
+                best_mean_waveform = (best_mean_waveform / 32768 * adc * 1000) / gain
+
+            # Populate waveform_data
+            self.mean_waveforms[cluster] = best_mean_waveform
+
+            
