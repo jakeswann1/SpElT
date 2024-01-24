@@ -1,5 +1,4 @@
 import numpy as np
-# Function to calculate burst index and autocorrelograms
 def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_size, time_window): #, burst_threshold):
     """
     Adapted function to compute autocorrelograms, burst indices, and first moments (in ms) for multiple clusters, 
@@ -31,13 +30,13 @@ def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_s
         # Extract spike times for the current cluster
         cluster_spike_times = spike_times[spike_clusters == cluster]
         
-        # Efficiently compute the time differences matrix using broadcasting
-        time_diffs = cluster_spike_times[:, None] - cluster_spike_times[None, :]
+        # Sort spike times
+        cluster_spike_times.sort()
         
-        # Remove the diagonal elements and flatten the matrix
-        time_diffs = time_diffs[~np.eye(time_diffs.shape[0], dtype=bool)].flatten()
+        # Compute differences between consecutive spike times
+        time_diffs = np.diff(cluster_spike_times)
         
-        # Early filtering of time differences within the specified time window
+        # Filter time differences within the specified time window
         time_diffs = time_diffs[np.abs(time_diffs) <= time_window]
         
         # Compute the histogram for autocorrelogram
@@ -49,6 +48,26 @@ def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_s
         # Store autocorrelogram in dictionary
         autocorrelograms[cluster] = {'bin_centers': bin_centers, 'counts': counts}
         
+        ### Compute the first moment (mean) of the autocorrelogram, in milliseconds
+        fm_bin_centers = bin_centers * 1000 # Convert bin centres to milliseconds
+        
+        # Filter bins where bin centers are positive
+        positive_indices = np.where(fm_bin_centers > 0)[0]
+        positive_bin_centers = fm_bin_centers[positive_indices]
+        positive_counts = counts[positive_indices]
+    
+        # Calculate the weighted sum of positive bin centers
+        weighted_sum = np.sum(positive_bin_centers * positive_counts)
+
+        # Calculate the total count in positive bins
+        total_positive_count = np.sum(positive_counts)
+
+        # Calculate the mean of the positive parts
+        moment = weighted_sum / total_positive_count
+        
+        # Store first moment in dictionary
+        first_moments[cluster] = moment
+
 #         ### CALCULATE BURST INDICES - CURRENTLY UNUSED
 #         # Calculate inter-spike intervals (ISIs) for burst index
 #         isis = np.diff(cluster_spike_times)
@@ -68,27 +87,6 @@ def compute_autocorrelograms_and_first_moment(spike_times, spike_clusters, bin_s
         
 #         # Store burst index in dictionary
 #         burst_indices[cluster] = burst_index
-        
-        ### Compute the first moment (mean) of the autocorrelogram, in milliseconds
-        # fm_bin_size = bin_size * 1000  # Convert bin size to milliseconds
-        fm_bin_centers = bin_centers * 1000 # Convert bin centres to milliseconds
-        
-        # Filter bins where bin centers are positive
-        positive_indices = np.where(fm_bin_centers > 0)[0]
-        positive_bin_centers = fm_bin_centers[positive_indices]
-        positive_counts = counts[positive_indices]
-    
-        # Calculate the weighted sum of positive bin centers
-        weighted_sum = np.sum(positive_bin_centers * positive_counts)
-
-        # Calculate the total count in positive bins
-        total_positive_count = np.sum(positive_counts)
-
-        # Calculate the mean of the positive parts
-        moment = weighted_sum / total_positive_count
-        
-        # Store first moment in dictionary
-        first_moments[cluster] = moment
         
     return autocorrelograms, first_moments#, burst_indices
 
