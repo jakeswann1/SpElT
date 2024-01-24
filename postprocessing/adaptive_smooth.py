@@ -113,7 +113,8 @@ def adaptive_smooth(spk_map, pos_map, alpha, max_radius=None):
         f_vis = convolve(visited_template, kernel, mode='constant', cval=0.0)
 
         # Determine which bins meet the criteria at this radius
-        bins_passed = (alpha / (np.sqrt(f_spk) * f_pos)) <= radius
+        with np.errstate(divide='ignore'):
+            bins_passed = np.logical_and(f_pos != 0, (alpha / (np.sqrt(f_spk) * f_pos)) <= radius)
         bins_passed &= ~smoothed_check
 
         # Update smoothed maps and record bins
