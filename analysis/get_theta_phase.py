@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import firwin, filtfilt, hilbert
 
-def get_theta_phase(lfp, sampling_rate, peak_freq, filt_half_bandwidth=2, power_thresh=5):
+def get_theta_phase(lfp, sampling_rate, peak_freq, clip_value = 0, filt_half_bandwidth=2, power_thresh=5):
     """
     Simplified function to calculate the theta phase timeseries from an LFP signal.
 
@@ -35,6 +35,9 @@ def get_theta_phase(lfp, sampling_rate, peak_freq, filt_half_bandwidth=2, power_
     cycle_numbers = np.cumsum(phase_transitions[:-1])
 
     ### Remove bad data
+    # Remove any cycles with clipped values above or below 32000
+    clipped_cycles = np.where(np.abs(lfp) > clip_value)[0]
+
     # Calculate power per cycle and identify bad power cycles
     power = filtered_lfp ** 2
     power_per_cycle = np.bincount(cycle_numbers, power) / np.bincount(cycle_numbers)
@@ -49,6 +52,7 @@ def get_theta_phase(lfp, sampling_rate, peak_freq, filt_half_bandwidth=2, power_
 
     # Combine bad power and length cycles
     bad_cycles = np.union1d(bad_power_cycles, bad_length_cycles)
+    bad_cycles = np.union1d(bad_cycles, clipped_cycles)
 
     # Mark theta phase and cycle numbers corresponding to bad cycles as NaN
     bad_cycle_indices = np.isin(cycle_numbers, bad_cycles)
@@ -74,7 +78,7 @@ def get_spike_theta_phase(lfp, spike_times, sampling_rate, peak_freq, filt_half_
     - spike_phases: Theta phase (in radians) of spikes.
     """
 
-    theta_phase, cycle_numbers = get_theta_phase(lfp, sampling_rate, peak_freq, filt_half_bandwidth, power_thresh)
+    theta_phase, _ = get_theta_phase(lfp, sampling_rate, peak_freq, filt_half_bandwidth, power_thresh)
     
     # MAP SPIKE TIMES TO PHASE
     spike_indices = (spike_times * sampling_rate).astype(int)
