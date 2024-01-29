@@ -9,6 +9,7 @@ def get_theta_phase(lfp, sampling_rate, peak_freq, clip_value = 0, filt_half_ban
     - lfp: Local Field Potential time series.
     - sampling_rate: The sampling rate of the LFP.
     - peak_freq: The central frequency around which the LFP is filtered.
+    - clip_value: The value above which the LFP is considered clipped. Default is 0.
     - filt_half_bandwidth: Half bandwidth for filtering. Default is 2 Hz.
     - power_thresh: Threshold (percentile) for minimum power per cycle. Default is 5.
 
