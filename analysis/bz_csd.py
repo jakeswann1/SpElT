@@ -36,8 +36,8 @@ def bz_csd(lfp, **kwargs):
         sampling_rate = kwargs.get('sampling_rate', 1000)
 
     channels = kwargs.get('channels', np.arange(data.shape[1]))
-    spat_sm = kwargs.get('spat_sm', 11)
-    temp_sm = kwargs.get('temp_sm', 7)
+    spat_sm = kwargs.get('spat_sm', 0)
+    temp_sm = kwargs.get('temp_sm', 0)
     do_detrend = kwargs.get('do_detrend', False)
     plot_csd = kwargs.get('plot_csd', True)
     plot_lfp = kwargs.get('plot_lfp', True)
@@ -117,7 +117,7 @@ def calculate_csd_df(arm_cycle_df):
     non_ephys_labels = ['Traversal Index', 'Cycle Index', 'Cycle Theta Phase', 'Speed']
     
     # Add indices to output dataframe
-    csd_index = [label + '_csd' for label in arm_cycle_df.drop(non_ephys_labels).index]
+    csd_index = [str(label) + '_csd' for label in arm_cycle_df.drop(non_ephys_labels).index]
     csd_df_empty = pd.DataFrame(np.nan, index=csd_index, columns=arm_cycle_df.columns)
     csd_df = pd.concat([arm_cycle_df, csd_df_empty], axis=0)
     
@@ -125,7 +125,7 @@ def calculate_csd_df(arm_cycle_df):
     traversals = int(max(arm_cycle_df.loc(axis=0)['Traversal Index']))
     
     # Loop through traversals and calculate CSD
-    for traversal in range(traversals):
+    for traversal in range(traversals + 1):
         # Select traversal data from dataframe
         traversal_df = arm_cycle_df.loc[:, arm_cycle_df.loc['Traversal Index'] == traversal]
         
@@ -191,7 +191,14 @@ def plot_csd_theta_phase(mean_csd_data, title = '', save_path = None):
     # Preparing the meshgrid for plotting
     channels = np.arange(mean_csd_data.shape[0])
     theta_phases = np.arange(mean_csd_data.shape[1]) * (2 * np.pi / mean_csd_data.shape[1])
-    X, Y = np.meshgrid(theta_phases, channels)
+    X, Y = np.meshgrid(theta_phases[1:-1], channels)
+
+    # Cut first and last samples from CSD, and remove noise 
+    mean_csd_data = mean_csd_data.iloc[:, 1:-1].copy()
+    mean_csd_data[np.abs(mean_csd_data) > 0.7] = np.nan
+    # # Interpolate NaNs along rows
+    mean_csd_data = mean_csd_data.interpolate(axis=1)
+    # mean_csd_data = mean_csd_data[np.abs(mean_csd_data) < 3 * mean_csd_data.std()]
 
     cmax = np.nanmax(np.abs(mean_csd_data))
     # Plotting using contourf
