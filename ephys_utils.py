@@ -14,6 +14,13 @@ def load_session(obj, lfp_sampling_rate):
         obj.load_lfp(i, lfp_sampling_rate), 
     obj.load_spikes('good')
 
+def gs_to_df(url):
+    import pandas as pd
+    
+    csv_export_url = url.replace('/edit#gid=', '/export?format=csv&gid=')
+    df = pd.read_csv(csv_export_url, on_bad_lines = 'skip')
+    return df
+
 def select_spikes_by_trial(spike_data, trials, trial_offsets):
     """
     Select spikes from specific trials. Returns spikes time-indexed from 0 at the start of each trial

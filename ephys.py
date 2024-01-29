@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-from session_utils import gs_to_df
+from ephys_utils import gs_to_df
 
 class ephys:
     '''

@@ -32,43 +32,20 @@ def find_all_sessions(sheet_path, data_path, sorting_suffix):
     
     return session_dict
 
+from ephys import ephys
+import pandas as pd
 
-from ipywidgets import interact, widgets
-from IPython.display import display
+def make_df_all_sessions(session_dict, recording_type = 'nexus'):
+    '''
+    Function to make a dataframe of all sessions and their paths
+    '''
+    
+    # Initialise DataFrame for ephys objects
+    df_all_sessions = pd.DataFrame(data = None, index = session_dict.keys(), columns = ['ephys_object'], dtype='object')
 
-class SessionSelector:
-    def __init__(self, session_dict):
-        """
-        Initialize the SessionSelector class.
-        
-        Parameters:
-        - session_dict (dict): A dictionary where keys are session names and values are corresponding paths.
-        """
-        self.session_dict = session_dict
-        self.path_to_session = None
-        self._create_dropdown()
-        
-    def _create_dropdown(self):
-        """
-        Create and display a dropdown widget populated with the keys from the session_dict.
-        """
-        # Create the dropdown widget with keys from the session_dict
-        self.dropdown_widget = widgets.Dropdown(
-            options=self.session_dict.keys(),
-            description='Select Session:',
-            disabled=False,
-        )
-        
-        # Connect the widget and the update function
-        interact(self._update_path_to_session, selected_key=self.dropdown_widget)
-        
-    def _update_path_to_session(self, selected_key):
-        """
-        Update the instance variable path_to_session based on the selected dropdown key.
-        
-        Parameters:
-        - selected_key (str): The key selected from the dropdown widget.
-        """
-        self.path_to_session = self.session_dict[selected_key]
-        print(f"Value of selector.path_to_session has been set to: {self.path_to_session}")
+    for i, session_path in enumerate(session_dict.values()):
+        # Create ephys object for session and add to dataframe
+        obj = ephys(recording_type = recording_type, path = session_path)
+        df_all_sessions.at[list(session_dict.keys())[i], 'ephys_object'] = obj
 
+    return df_all_sessions
