@@ -191,11 +191,11 @@ def plot_csd_theta_phase(mean_csd_data, title = '', save_path = None):
     # Preparing the meshgrid for plotting
     channels = np.arange(mean_csd_data.shape[0])
     theta_phases = np.arange(mean_csd_data.shape[1]) * (2 * np.pi / mean_csd_data.shape[1])
-    X, Y = np.meshgrid(theta_phases[1:-1], channels)
+    
+    # Cut first and last two samples from CSD to remove edge effects
+    X, Y = np.meshgrid(theta_phases[2:-2], channels)
+    mean_csd_data = mean_csd_data.iloc[:, 2:-2].copy()
 
-    # Cut first and last samples from CSD, and remove noise 
-    mean_csd_data = mean_csd_data.iloc[:, 1:-1].copy()
-    mean_csd_data[np.abs(mean_csd_data) > 0.7] = np.nan
     # # Interpolate NaNs along rows
     mean_csd_data = mean_csd_data.interpolate(axis=1)
     # mean_csd_data = mean_csd_data[np.abs(mean_csd_data) < 3 * mean_csd_data.std()]
