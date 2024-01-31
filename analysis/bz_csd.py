@@ -181,29 +181,23 @@ def mean_csd_theta_phase(arm_csd_df, arm_csd_labels):
     
     return mean_csd_data
     
-def plot_csd_theta_phase(mean_csd_data, title = '', save_path = None):
+def plot_csd_theta_phase(mean_csd_data, title='', save_path=None, padding=2):
     '''
     Takes output of the previous function, and plots mean CSD across theta phase using pltcontourf
     arm
     '''
-
     # Plot using contourf as in bz_csd function
     # Preparing the meshgrid for plotting
     channels = np.arange(mean_csd_data.shape[0])
     theta_phases = np.arange(mean_csd_data.shape[1]) * (2 * np.pi / mean_csd_data.shape[1])
-    
-    # Cut first and last two samples from CSD to remove edge effects
+    # Cut off the first and last two theta phases to avoid edge effects
     X, Y = np.meshgrid(theta_phases[2:-2], channels)
-    mean_csd_data = mean_csd_data.iloc[:, 2:-2].copy()
-
-    # # Interpolate NaNs along rows
-    mean_csd_data = mean_csd_data.interpolate(axis=1)
-    # mean_csd_data = mean_csd_data[np.abs(mean_csd_data) < 3 * mean_csd_data.std()]
+    mean_csd_data = mean_csd_data.iloc[:, 2:-2]
 
     cmax = np.nanmax(np.abs(mean_csd_data))
     # Plotting using contourf
     plt.figure(figsize=(10, 6))
-    contour = plt.contourf(X, Y, mean_csd_data.values, 40, cmap='jet', vmin=-cmax, vmax=cmax)  
+    contour = plt.contourf(X, Y, mean_csd_data, 40, cmap='jet', vmin=-cmax, vmax=cmax)  
 
     plt.colorbar(contour)
     # Adding labels and title
