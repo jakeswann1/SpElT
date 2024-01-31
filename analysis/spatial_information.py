@@ -6,7 +6,7 @@ def spatial_info(rate_maps, pos_map):
 
     Returns Skaggs et al's estimate of spatial information in bits per second:
 
-    I = sum_x p(x) r(x) log(r(x)/r)  
+    I = sum_x p(x) r(x) log2(r(x)/r)  
     then divide by mean rate over bins to get bits per spike.
 
     Parameters:

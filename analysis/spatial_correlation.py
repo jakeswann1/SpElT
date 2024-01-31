@@ -1,7 +1,5 @@
 import numpy as np
 from scipy.stats import pearsonr
-from scipy.interpolate import interp2d
-
 from scipy.interpolate import griddata
 
 def interpolate_map(map, max_dim):

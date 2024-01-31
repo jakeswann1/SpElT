@@ -143,9 +143,9 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
 
     # Before returning, transpose the arrays to account for an axis transformation that np.histogram2D does
     rate_maps_dict = {cluster: rate_map.T for cluster, rate_map in rate_maps_dict.items()}
-    occupancy = occupancy.T
+    smoothed_pos = smoothed_pos.T
     
-    return rate_maps_dict, occupancy, max_rates_dict, mean_rates_dict
+    return rate_maps_dict, smoothed_pos, max_rates_dict, mean_rates_dict
 
 
 def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mean_rates_dict, spatial_info_dict, session="N/A", age=None):
@@ -179,7 +179,7 @@ def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mea
     for session_key, sub_dict in rate_maps_dict.items():
         if cluster_id in sub_dict:
             rate_map = sub_dict[cluster_id]
-            im = axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower')
+            im = axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower', vmin = 0)
             axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id]:.2f} Hz\n Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f} bits/spike")
             axes[ax_idx].invert_yaxis() # Needed to match rate maps to theta phase plots
             axes[ax_idx].axis('off')
