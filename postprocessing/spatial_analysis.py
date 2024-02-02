@@ -144,6 +144,9 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     # Before returning, transpose the arrays to account for an axis transformation that np.histogram2D does
     rate_maps_dict = {cluster: rate_map.T for cluster, rate_map in rate_maps_dict.items()}
     smoothed_pos = smoothed_pos.T
+
+    # Set pos map to NaN where occupancy is 0
+    smoothed_pos[occupancy.T == 0] = np.nan
     
     return rate_maps_dict, smoothed_pos, max_rates_dict, mean_rates_dict
 

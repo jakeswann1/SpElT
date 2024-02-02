@@ -40,7 +40,7 @@ def spatial_info(rate_maps, pos_map):
     # Mean rate for each map
     mean_rates = np.array([np.nansum(rate_map * pos_maps_array) / duration for rate_map in rate_maps_array])
 
-    # Probability of occupancy and rate
+    # Normalise occupancy and rate maps to give probability distributions
     p_x = pos_maps_array / duration
     p_r = rate_maps_array / mean_rates[:, np.newaxis, np.newaxis]
 
