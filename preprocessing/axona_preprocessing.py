@@ -60,42 +60,6 @@ def custom_ks2_params():
                 }
     return custom_ks2_params
 
-def gs_to_df(url):
-    import pandas as pd
-    
-    csv_export_url = url.replace('/edit#gid=', '/export?format=csv&gid=')
-    df = pd.read_csv(csv_export_url, on_bad_lines = 'skip')
-    return df
-
-def fullprint(*args, **kwargs):
-    from pprint import pprint
-    import numpy
-    opt = numpy.get_printoptions()
-    numpy.set_printoptions(threshold=numpy.inf)
-    pprint(*args, **kwargs)
-    numpy.set_printoptions(**opt)
-    
-def pickle_variable(var, var_name):
-    """
-    This function pickles any python variable and stores it in a file named '[variableName].pkl'.
-
-    Parameters:
-    var: Python variable to be pickled
-    var_name: Name of the variable as a string. The variable will be stored in a file named '[var_name].pkl'.
-    """
-    import pickle
-    with open(f'{var_name}.pkl', 'wb') as f:
-        pickle.dump(var, f)
-
-def load_pickle(file_path):
-    """
-    This function loads a pickle file from 'file_path' (expected .pkl file).
-    """
-    import pickle
-    with open(file_path, 'rb') as f:
-        data = pickle.load(f)
-    return data
-
 def generate_tetrodes(n):
     '''
     Returns a spikeinterface ProbeGroup object with n tetrodes spaced 300um apart vertically
@@ -172,28 +136,19 @@ def preprocess(recording, recording_name, base_folder, electrode_type, num_chann
             singleProbe = probeinterface.Probe.from_dict(probe.to_dict()['probes'][0])
             recording = recording.set_probe(singleProbe)
 
-        recording_saved = recording.save(folder=preprocessing_folder)
+        recording.save(folder=preprocessing_folder)
         print('Recording preprocessed and saved\n')
         return recording
     
 
 def sort(recording, recording_name, base_folder, electrode_type, sorting_suffix):
-    # Takes a preprocessed Spikeinterface recording object, and sorts using Klusta
+    # Takes a preprocessed Spikeinterface recording object, and sorts using Klusta or KS2
     import warnings
     warnings.filterwarnings("ignore", category=DeprecationWarning) #gets rid of some annoying warnings
     from pathlib import Path
     import spikeinterface as si
     import spikeinterface.sorters as ss
     from probeinterface import read_prb
-    
-#     recordings = recording.split_by(property='group', outputs='dict')
-    
-    if 'tetrode' in electrode_type:
-        sorter_params = custom_tetrode_params()
-        sorter = 'klusta'
-    else:
-        sorter_params = custom_probe_params()
-        sorter = 'klusta'
     
     sorting_path = Path(f'{base_folder}/{recording_name[:6]}_{sorting_suffix}') 
     
@@ -210,27 +165,23 @@ def sort(recording, recording_name, base_folder, electrode_type, sorting_suffix)
             raise ValueError
 
     else:
-        if 'tetrode' in electrode_type:
         # Run klusta on tetrode recording using custom_tetrode_params above
+        if 'tetrode' in electrode_type:
             sorting = ss.run_sorter('klusta', recording, output_folder=f'{sorting_path}',
                         verbose = True, docker_image = False, **custom_tetrode_params())
  
-        elif electrode_type == 'probe' or electrode_type == '32 ch four shanks' or electrode_type == '5x12_buz':
         # Run klusta on probe recording using custom_probe_params above
+        elif electrode_type == 'probe' or electrode_type == '32 ch four shanks' or electrode_type == '5x12_buz':
             sorting = ss.run_sorter('kilosort2', recording, output_folder=f'{sorting_path}',
                                     verbose = True, docker_image = True, **custom_ks2_params())            
         else:
             print('Tetrode type set wrong')
         
-        print(f'Recording sorted!\n Klusta found {len(sorting.get_unit_ids())} units\n')
+        print(f'Recording sorted!\n KS2 found {len(sorting.get_unit_ids())} units\n')
         sorting = sorting.remove_empty_units()          
-        sorting_saved = sorting.save(folder=sorting_path / 'sort')
+        sorting.save(folder=sorting_path / 'sort')
         print(f'Sorting saved to {sorting_path}/sort\n')
-            
-
-
-    #raster = si.widgets.plot_rasters(sorting)
-    
+                
 def get_mode(set_file):
     # Gets recording mode from channel 0 in set file
     # Assumes all channels are recorded in the same mode
