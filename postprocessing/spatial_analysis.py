@@ -108,8 +108,10 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
         
     # Initialize the rate maps dictionary with zeros using cluster keys
     rate_maps_dict = {cluster: np.zeros_like(occupancy) for cluster in spike_data.keys()}
+    raw_rate_maps_dict = {cluster: np.zeros_like(occupancy) for cluster in spike_data.keys()}
     max_rates_dict = {cluster: [np.nan] for cluster in spike_data.keys()}
     mean_rates_dict = {cluster: [np.nan] for cluster in spike_data.keys()}
+       
         
     # Populate the rate maps based on spike times
     for cluster, spike_times in spike_data.items():
@@ -123,13 +125,17 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
         # Set spike count to 0 where occupancy is 0 to avoid division by 0
         spike_count[occupancy == 0] = 0
 
+        # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
+        rate_map_raw = spike_count / (occupancy * dt + 1e-10)
+        raw_rate_maps_dict[cluster] = rate_map_raw
+
         if adaptive_smoothing:
             # Apply adaptive smoothing
             smoothed_spk, smoothed_pos, smoothed_rate, _ = adaptive_smooth(spike_count, occupancy, alpha)
             rate_maps_dict[cluster] = smoothed_rate
         else:
-            # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
-            rate_map_raw = spike_count / (occupancy * dt + 1e-10)
+            # Return raw rate map if adaptive smoothing is not used
+            rate_maps_dict[cluster] = rate_map_raw
 
             # # Apply uniform smoothing to the raw rate map
             # rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
@@ -147,8 +153,11 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
 
     # Set pos map to NaN where occupancy is 0
     smoothed_pos[occupancy.T == 0] = np.nan
+    # Set occupancy to NaN where occupancy is 0
+    occupancy[occupancy == 0] = np.nan
+    raw_pos = occupancy
     
-    return rate_maps_dict, smoothed_pos, max_rates_dict, mean_rates_dict
+    return rate_maps_dict, raw_rate_maps_dict, smoothed_pos, raw_pos, max_rates_dict, mean_rates_dict
 
 
 def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mean_rates_dict, spatial_info_dict, session="N/A", age=None):
