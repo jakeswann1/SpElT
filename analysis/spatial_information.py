@@ -43,9 +43,16 @@ def spatial_info(rate_maps, pos_map):
     # Normalise occupancy and rate maps to give probability distributions
     p_x = pos_maps_array / duration
     p_r = rate_maps_array / mean_rates[:, np.newaxis, np.newaxis]
+    
+    # Replace NaNs and infinities in rate_maps_array and p_r
+    rate_maps_array = np.nan_to_num(rate_maps_array)
+    p_r = np.nan_to_num(p_r)
+
+    # Replace zeroes with a small positive number in p_r before taking the logarithm
+    p_r = np.where(p_r == 0, 1e-10, p_r)
 
     # Calculate spatial information
-    bits_per_sec_array = np.array([np.nansum(p_x * rate_map * np.log2(p_r_i)) for rate_map, p_r_i in zip(rate_maps_array, p_r)])
+    bits_per_sec_array = np.array([np.nansum(p_x * rate_map * np.log2(p_r_i)) if mean_rate != 0 else 0 for rate_map, p_r_i, mean_rate in zip(rate_maps_array, p_r, mean_rates) if mean_rate != 0])
     bits_per_spike_array = bits_per_sec_array / mean_rates
 
     # Return either dict or array, matching input
