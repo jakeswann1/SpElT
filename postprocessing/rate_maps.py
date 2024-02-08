@@ -5,67 +5,30 @@ from ipywidgets import widgets, interact
 import matplotlib.pyplot as plt
 from postprocessing.adaptive_smooth import *
 
+def bin_pos_data_axona(pos_data, bin_length = 2.5, speed_threshold = 2.5):
 
-def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smoothing = True, smoothing_window = None, alpha = None):
     """
-    Generate smoothed rate maps for neurons with optimized computational efficiency.
-    
-    This function computes the rate maps for given clusters of neurons based on spike 
-    times and animal positions. The rate map for each neuron is smoothed using a 
-    uniform filter. The function also accounts for cases where occupancy is zero.
+    Unpacks the position data from the Axona format for rate map generation, and bin poitions.
+    params:
+    pos_data (dict): A dictionary containing the animal's position data in pixels and header information.
+                     'xy_position' key has a DataFrame with x and y coordinates as row indices 
+                     and time as columns.
+                     'header' key contains metadata such as 'min_x', 'max_x', 'min_y', 'max_y'.
+    bin_length (float, optional): The length of each square bin in centimeters. Defaults to 2.5.
+    speed_threshold (float, optional): The speed threshold in cm/s for filtering the position data. Defaults to 2.5.
 
-    Args:
-        spike_data (dict): A dictionary containing spike times for each cluster. 
-                           The keys are cluster identifiers, and the values are 
-                           NumPy arrays of spike times in seconds.
-        pos_data (dict): A dictionary containing the animal's position data in pixels and header information.
-                         'xy_position' key has a DataFrame with x and y coordinates as row indices 
-                         and time as columns.
-                         'header' key contains metadata such as 'min_x', 'max_x', 'min_y', 'max_y'.
-        bin_length (int, optional): The length of each square bin in pixels. 
-                                    Defaults to 10.
-        dt (float, optional): The time step in seconds for binning the spike data. 
-                              Defaults to 1.0.
-        adaptive_smoothing (bool, optional): Whether to use adaptive smoothing. Defaults to True.
-        smoothing_window (int, optional): The size of the uniform filter window for smoothing 
-                                          the rate maps. Defaults to None.
-        alpha (float, optional): The alpha parameter for adaptive smoothing. Defaults to None.
-        
-    Returns:
-        tuple: A tuple containing four elements:
-            - rate_maps_dict (dict): A dictionary containing the smoothed rate maps 
-                                     for each cluster. The keys are cluster identifiers, 
-                                     and the values are 2D NumPy arrays representing the 
-                                     rate maps.
-            
-            - raw_rate_maps_dict (dict): A dictionary containing the raw (unsmoothed) rate
-                                        for further processing.
-            - smoothed_pos (ndarray): A 2D NumPy array representing the time spent by the 
-                                   animal in each spatial bin (smoothed with adaptive kernel).
-            - raw_pos (ndarray): A 2D NumPy array representing the time spent by the
-                                animal in each spatial bin (unsmoothed).
-            - max_rates_dict (dict): A dictionary containing the maximum firing rates 
-                                     for each cluster. The keys are cluster identifiers, 
-                                     and the values are lists of maximum firing rates.
-            - mean_rates_dict (dict): A dictionary containing the mean firing rates 
-                                      for each cluster. The keys are cluster identifiers, 
-                                      and the values are lists of mean firing rates.
-            - x_bin_idx (ndarray): A 1D NumPy array representing the bin indices for the x-coordinates.
-            - y_bin_idx (ndarray): A 1D NumPy array representing the bin indices for the y-coordinates.
-    
-    Raises:
-        ValueError: If the input dictionaries `spike_data` or `pos_data` are empty.
-        TypeError: If the input types do not match the expected types for `spike_data` 
-                   and `pos_data`.
     """
-    
-    # Unpack the 'xy_position' DataFrame from the 'pos_data' dictionary
+
     positions = pos_data['xy_position']
-    # Unpack speed
+    pos_sample_times = pos_data['xy_position'].columns.to_numpy()
+
     speed = pos_data['speed']
-    # Unpack position sampling rate
     pos_sampling_rate = pos_data['pos_sampling_rate']
+    scaled_ppm = pos_data['header']['scaled_ppm'] #pixels per meter
     
+    # Get bin length in pixels
+    bin_length = bin_length * scaled_ppm / 100 #convert to meters and then to pixels
+
     # Extract raw field of view (FOV) pixel boundaries
     # These coordinates are rounded to the nearest lower and upper bin edges, respectively
     min_x_raw = np.floor_divide(pos_data['header']['min_x'], bin_length) * bin_length
@@ -78,7 +41,7 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     max_x = max_x_raw - min_x_raw
     min_y = 0
     max_y = max_y_raw - min_y_raw
-    
+
     # Calculate the number of bins along the x and y axes
     x_bins = int((max_x - min_x) / bin_length)
     y_bins = int((max_y - min_y) / bin_length)
@@ -92,8 +55,13 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     
     # Extract x and y coordinates and their corresponding timestamps from the DataFrame
     x_coords, y_coords = positions.values[0, :], positions.values[1, :]
-    sample_times = positions.columns.to_numpy()
-    
+
+    # Speed filter
+    speed_mask = speed >= speed_threshold
+    x_coords = x_coords[speed_mask]
+    y_coords = y_coords[speed_mask]
+    pos_sample_times = pos_sample_times[speed_mask]
+
     # Digitize the x and y coordinates to find which bin they belong to
     x_bin_idx = np.digitize(x_coords, x_bin_edges) - 1
     y_bin_idx = np.digitize(y_coords, y_bin_edges) - 1
@@ -101,69 +69,111 @@ def make_rate_maps(spike_data, pos_data, bin_length = 10, dt = 1.0, adaptive_smo
     # Clip the bin indices to lie within the valid range [0, number_of_bins - 1]
     x_bin_idx = np.clip(x_bin_idx, 0, x_bins - 1)
     y_bin_idx = np.clip(y_bin_idx, 0, y_bins - 1)
+    pos_bin_idx = (x_bin_idx, y_bin_idx)
+
+    return pos_bin_idx, pos_sample_times, pos_sampling_rate
+
+def make_rate_maps(spike_data, pos_sample_times, pos_bin_idx, pos_sampling_rate, dt = 1.0, adaptive_smoothing = True, alpha = 200, max_rates = True):
+    """
+    Generate smoothed rate maps for neurons with optimized computational efficiency.
     
-    # Filter xy positions for speed <2.5cm/s
-    # THRESHOLD HARD_CODED FOR NOW
-    speed_mask = speed >= 2.5
-    x_coords = x_coords[speed_mask]
-    y_coords = y_coords[speed_mask]
+    This function computes the rate maps for given clusters of neurons based on spike 
+    times and binned animal positions. The rate map for each neuron is smoothed using a 
+    uniform filter. The function also accounts for cases where occupancy is zero.
+
+    XY position data should be binned into a 2D grid (i.e. using bin_axona_pos_data), and the corresponding bin indices
+    should be provided. The function also requires the sampling rate of the position data.
+
+    Args:
+        spike_data (dict): A dictionary containing spike times for each cluster. 
+                           The keys are cluster identifiers, and the values are 
+                           NumPy arrays of spike times in seconds.
+        pos_sample_times (ndarray): A 1D NumPy array representing the sample times of the animal's position.
+        pos_bin_idx (ndarray): A 2D NumPy array representing the bin indices of the animal's position.
+        pos_sampling_rate (float): The sampling rate of the animal's position in Hz.
+        dt (float, optional): The time step in seconds for binning the spike data. 
+                              Defaults to 1.0.
+        adaptive_smoothing (bool, optional): Whether to use adaptive smoothing. Defaults to True.
+        alpha (float, optional): The alpha parameter for adaptive smoothing. Defaults to 200.
+        max_rates (bool, optional): Whether to calculate max and mean firing rates. Defaults to True.
+        
+    Returns:
+        tuple: A tuple containing the following elements:
+            - rate_maps_dict (dict or ndarray): A dictionary containing the rate maps for each cluster. 
+                                    The keys are cluster identifiers, and the values are 2D NumPy arrays.
+                                    If only one rate map is generated, the function returns a 2D NumPy array.
+            - pos_map (ndarray): A 2D NumPy array representing the 2D occupancy map.
+
+            - max_rates_dict (dict): A dictionary containing the maximum firing rates for each cluster. Only returned if `max_rates` is True.
+            - mean_rates_dict (dict): A dictionary containing the mean firing rates for each cluster. Only returned if `max_rates` is True.
     
-    # Compute the 2D occupancy map using a 2D histogram and normalize by the sampling rate to give seconds per bin
-    # This ensures that rate maps are in units of Hz
-    occupancy, _, _ = np.histogram2d(x_coords, y_coords, bins=[x_bin_edges, y_bin_edges])
-    occupancy /= pos_sampling_rate
+    Raises:
+        TypeError: If the input types do not match the expected types for `spike_data` 
+                   and `pos_data`.
+    """
+    # Determine if spike_times is dict or array. If array, convert to dict
+    if isinstance(spike_data, dict):
+        return_dict = True
+        pass
+    elif isinstance(spike_data, np.ndarray):
+        spike_data = {0: spike_data}
+        return_dict = False
+    else:
+        raise TypeError("spike_data must be a dictionary or a 1D numpy array")
+
+    bins = [np.arange(0, pos_bin_idx[0].max() + 1), np.arange(0, pos_bin_idx[1].max() + 1)]
+
+    # Compute the 2D occupancy map
+    pos_map, _, _ = np.histogram2d(pos_bin_idx[0], pos_bin_idx[1], bins=bins)
+    # Normalize by the sampling rate to give seconds per bin. This ensures that rate maps are in units of Hz
+    pos_map /= pos_sampling_rate
         
     # Initialize the rate maps dictionary with zeros using cluster keys
-    rate_maps_dict = {cluster: np.zeros_like(occupancy) for cluster in spike_data.keys()}
-    raw_rate_maps_dict = {cluster: np.zeros_like(occupancy) for cluster in spike_data.keys()}
+    rate_maps_dict = {cluster: np.zeros_like(pos_map) for cluster in spike_data.keys()}
     max_rates_dict = {cluster: [np.nan] for cluster in spike_data.keys()}
     mean_rates_dict = {cluster: [np.nan] for cluster in spike_data.keys()}
-       
-        
+         
     # Populate the rate maps based on spike times
     for cluster, spike_times in spike_data.items():
         # Find the corresponding bins for each spike time
-        in_bins = np.digitize(spike_times, sample_times) - 1
-        # Increment the spike count in the respective bins
-        np.add.at(rate_maps_dict[cluster], (x_bin_idx[in_bins], y_bin_idx[in_bins]), 1)
-        
-    # Smooth rate maps
-    for cluster, spike_count in rate_maps_dict.items():
+        binned_spikes = np.digitize(spike_times, pos_sample_times) - 1
+        # Make spike map
+        spike_map, _, _ = np.histogram2d(pos_bin_idx[0][binned_spikes], pos_bin_idx[1][binned_spikes], bins=bins)
+
         # Set spike count to 0 where occupancy is 0 to avoid division by 0
-        spike_count[occupancy == 0] = 0
+        spike_map[pos_map == 0] = 0
 
-        # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
-        rate_map_raw = spike_count / (occupancy * dt + 1e-10)
-        raw_rate_maps_dict[cluster] = rate_map_raw
-
+        # Smooth the spike map using an adaptive kernel
         if adaptive_smoothing:
-            # Apply adaptive smoothing
-            smoothed_spk, smoothed_pos, smoothed_rate, _ = adaptive_smooth(spike_count, occupancy, alpha)
-            rate_maps_dict[cluster] = smoothed_rate
+            _, pos_map, rate_map, _ = adaptive_smooth(spike_map, pos_map, alpha)
+            rate_maps_dict[cluster] = rate_map
         else:
-            # Return raw rate map if adaptive smoothing is not used
-            rate_maps_dict[cluster] = rate_map_raw
+            # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
+            raw_rate_map = spike_map / (pos_map * dt + 1e-10)
+            # Return raw rate and pos map if adaptive smoothing is not used
+            rate_maps_dict[cluster] = raw_rate_map
 
-            # # Apply uniform smoothing to the raw rate map
-            # rate_map_smoothed = uniform_filter(rate_map_raw, size=smoothing_window)
-            # rate_map_smoothed[occupancy == 0] = np.nan
-
-        # Calculate max and mean firing rates
-        max_rates_dict[cluster] = np.nanmax(rate_maps_dict[cluster])
-        mean_rates_dict[cluster] = np.nanmean(rate_maps_dict[cluster])
+        if max_rates == True:
+            # Calculate max and mean firing rates
+            max_rates_dict[cluster] = np.nanmax(rate_maps_dict[cluster])
+            mean_rates_dict[cluster] = np.nanmean(rate_maps_dict[cluster])
                 
+    # Set pos map to NaN where occupancy is 0
+    pos_map[pos_map == 0] = np.nan
 
     # Before returning, transpose the arrays to account for an axis transformation that np.histogram2D does
     rate_maps_dict = {cluster: rate_map.T for cluster, rate_map in rate_maps_dict.items()}
-    smoothed_pos = smoothed_pos.T
+    pos_map = pos_map.T
 
-    # Set pos map to NaN where occupancy is 0
-    smoothed_pos[occupancy.T == 0] = np.nan
-    # Set occupancy to NaN where occupancy is 0
-    occupancy[occupancy == 0] = np.nan
-    raw_pos = occupancy
-    
-    return rate_maps_dict, raw_rate_maps_dict, smoothed_pos, raw_pos, max_rates_dict, mean_rates_dict, x_bin_idx, y_bin_idx
+    # If only one rate map, convert to array
+    if return_dict == False:
+        rate_maps_dict = rate_maps_dict[0]
+
+    if max_rates is True:
+        return rate_maps_dict, pos_map, max_rates_dict, mean_rates_dict
+    else:
+        return rate_maps_dict, pos_map
+
 
 
 def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mean_rates_dict, spatial_info_dict, spatial_significance_dict, session="N/A", age=None):
@@ -200,7 +210,7 @@ def plot_cluster_across_sessions(rate_maps_dict, cluster_id, max_rates_dict, mea
         if cluster_id in sub_dict:
             rate_map = sub_dict[cluster_id]
             im = axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower', vmin = 0)
-            axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id]:.2f} Hz\n Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f} bits/spike. P = {spatial_significance_dict[session_key][cluster_id]}")
+            axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id]:.2f} Hz\n Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f}. P = {spatial_significance_dict[session_key][cluster_id]}")
             axes[ax_idx].invert_yaxis() # Needed to match rate maps to theta phase plots
             axes[ax_idx].axis('off')
             # plt.colorbar(im, ax=axes[ax_idx])

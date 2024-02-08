@@ -1,25 +1,26 @@
 import numpy as np
 import pynapple as nap
 from spatial_information import spatial_info
+from postprocessing.rate_maps import make_rate_maps
+from postprocessing.adaptive_smooth import adaptive_smooth
 
+from joblib import Parallel, delayed
 
-def make_map_simple(spike_times, pos_sample_times, pos_bin_idx):
-    """
-    Make a simple, unsmoothed rate map and position map from spike times position sample times, and binned position data.
-    """
+def compute_shuffle(spike_times_real, pos_sample_times, pos_bin_idx, pos_sampling_rate):
     
-    # Bin spike times into pos samples
-    binned_spikes = np.digitize(spike_times, pos_sample_times)
-    
-    # Calculate position map
-    pos_map, _, _ = np.histogram2d(pos_bin_idx[0], pos_bin_idx[1], bins = [np.arange(0, pos_bin_idx[0].max() + 1), np.arange(0, pos_bin_idx[1].max() + 1)])
-    
+    # Shuffle spike times
+    spike_times_shuffled = nap.shuffle_ts_intervals(spike_times_real)
+    spike_times_shuffled = np.array(spike_times_shuffled.as_series().index)
+
     # Calculate rate map
-    rate_map, _, _ = np.histogram2d(pos_bin_idx[0][binned_spikes], pos_bin_idx[1][binned_spikes], bins = [np.arange(0, pos_bin_idx[0].max() + 1), np.arange(0, pos_bin_idx[1].max() + 1)])
+    rate_map_shuffled, pos_map = make_rate_maps(spike_times_shuffled, pos_sample_times, pos_bin_idx, pos_sampling_rate, max_rates = False)
     
-    return rate_map, pos_map
+    # Calculate spatial information from rate and pos maps
+    bits_per_spike_shuffled, bits_per_sec_shuffled = spatial_info(rate_map_shuffled, pos_map)
 
-def spatial_significance(pos_sample_times, pos_bin_idx, spike_times_real, n_shuffles = 1000):
+    return bits_per_spike_shuffled, bits_per_sec_shuffled
+
+def spatial_significance(pos_sample_times, pos_bin_idx, pos_sampling_rate, spike_times_real, n_shuffles = 1000):
     """
     Calculate the significance of spatial information for a given cluster by shuffling spike times and recalculating spatial information.
     
@@ -46,22 +47,18 @@ def spatial_significance(pos_sample_times, pos_bin_idx, spike_times_real, n_shuf
     bits_per_sec_shuffled = np.zeros(n_shuffles)
 
     # Calculate real rate map and spatial info
-    rate_map_real, pos_map_real = make_map_simple(spike_times_real, pos_sample_times, pos_bin_idx)
-    bits_per_spike_real, bits_per_sec_real = spatial_info(rate_map_real, pos_map_real)
+    rate_maps_real, pos_map_real = make_rate_maps(spike_times_real, pos_sample_times, pos_bin_idx, pos_sampling_rate, max_rates = False)
+    bits_per_spike_real, bits_per_sec_real = spatial_info(rate_maps_real, pos_map_real)
 
-    spike_times = nap.Ts(t=spike_times_real, time_units="s") #Pynapple object
-        
-    for shuffle in range(n_shuffles):
-        
-        # Shuffle spike times
-        spike_times_shuffled = nap.shuffle_ts_intervals(spike_times)
-        spike_times_shuffled = np.array(spike_times_shuffled.as_series().index)
+    spike_times_real = nap.Ts(t=spike_times_real, time_units="s") #Pynapple object
 
-        # Calculate rate map
-        rate_map_shuffled, _ = make_map_simple(spike_times_shuffled, pos_sample_times, pos_bin_idx)
-        
-        # Calculate spatial information from UNSMOOTHED rate and pos maps
-        bits_per_spike_shuffled[shuffle], bits_per_sec_shuffled[shuffle] = spatial_info(rate_map_shuffled, pos_map_real)
+    # Perform shuffles in parallel        
+    results = Parallel(n_jobs=-1)(delayed(compute_shuffle)(spike_times_real, pos_sample_times, pos_bin_idx, pos_sampling_rate) for _ in range(n_shuffles))
+
+    # Unpack results
+    bits_per_spike_shuffled, bits_per_sec_shuffled = zip(*results)
+    bits_per_spike_shuffled = np.concatenate(bits_per_spike_shuffled)
+    bits_per_sec_shuffled = np.concatenate(bits_per_sec_shuffled)
 
     # Calculate mean and standard deviation of the shuffled Skaggs information
     mean_shuffled = bits_per_spike_shuffled.mean()
