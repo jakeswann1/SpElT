@@ -231,30 +231,26 @@ def speed_filter_spikes(current_trial_spikes, speed_data, position_sampling_rate
     Returns:
     - filtered_spikes (dict): Dictionary containing filtered spike times.
     """
-    
-    # Initialize a dictionary to hold filtered spikes
     filtered_spikes = {}
     
-    # Sampling interval in seconds
     sampling_interval = 1 / position_sampling_rate
     
     for cluster, spikes in current_trial_spikes.items():
         # Convert spikes to closest speed index
         closest_indices = np.round(spikes / sampling_interval).astype(int)
         
-        # Initialize an empty list to store filtered spikes for this cluster
-        filtered_cluster_spikes = []
+        # Pre-filter indices that are out of bounds
+        valid_indices = (closest_indices >= 0) & (closest_indices < len(speed_data))
+        closest_indices = closest_indices[valid_indices]
+        spikes = spikes[valid_indices]
         
-        for spike, closest_index in zip(spikes, closest_indices):
-            # Retrieve speed at the closest index, if index is within bounds
-            if closest_index < len(speed_data):
-                speed_at_spike = speed_data[closest_index]
-                
-                # Check if speed is within the specified range
-                if speed_lower_bound <= speed_at_spike <= speed_upper_bound:
-                    filtered_cluster_spikes.append(spike)
+        # Retrieve speeds at the closest indices
+        speeds_at_spikes = speed_data[closest_indices]
+        
+        # Check which speeds are within the specified range
+        valid_speeds = (speed_lower_bound <= speeds_at_spikes) & (speeds_at_spikes <= speed_upper_bound)
         
         # Update the dictionary with filtered spikes for this cluster
-        filtered_spikes[cluster] = np.array(filtered_cluster_spikes)
+        filtered_spikes[cluster] = spikes[valid_speeds]
         
     return filtered_spikes
