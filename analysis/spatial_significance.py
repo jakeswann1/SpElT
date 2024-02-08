@@ -2,8 +2,6 @@ import numpy as np
 import pynapple as nap
 from spatial_information import spatial_info
 from postprocessing.rate_maps import make_rate_maps
-from postprocessing.adaptive_smooth import adaptive_smooth
-
 from joblib import Parallel, delayed
 
 def compute_shuffle(spike_times_real, pos_sample_times, pos_bin_idx, pos_sampling_rate):
