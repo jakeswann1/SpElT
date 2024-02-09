@@ -69,4 +69,4 @@ def spatial_significance(pos_sample_times, pos_bin_idx, pos_sampling_rate, spike
     # Note: This calculation assumes a one-tailed test, as we're only interested if the real value is significantly higher
     p_value = np.sum(bits_per_spike_shuffled >= bits_per_spike_real) / n_shuffles
 
-    return p_value, bits_per_spike_z
+    return p_value, bits_per_spike_z, bits_per_spike_shuffled
