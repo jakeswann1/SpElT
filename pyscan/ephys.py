@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 
-from ephys_utils import gs_to_df
+from .ephys_utils import gs_to_df
+from .postprocessing.postprocess_pos_data import process_position_data
 
 class ephys:
     '''
@@ -247,8 +248,6 @@ class ephys:
                               'led_pix': led_pix.T}
 
                     # Postprocess posdata and return to self as dict
-                    from postprocessing.postprocess_pos_data import process_position_data
-
                     xy_pos, led_pos, led_pix, speed, direction, direction_disp = process_position_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
                     
                     # Divide by sampling rate to give dataframe columns in seconds

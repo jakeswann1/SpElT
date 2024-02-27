@@ -60,14 +60,15 @@ def custom_ks2_params():
                 }
     return custom_ks2_params
 
+import numpy as np
+from probeinterface import generate_tetrode, ProbeGroup
+from probeinterface import write_prb
+from probeinterface.plotting import plot_probe, plot_probe_group
+
 def generate_tetrodes(n):
     '''
     Returns a spikeinterface ProbeGroup object with n tetrodes spaced 300um apart vertically
     '''
-    import numpy as np
-    from probeinterface import generate_tetrode, ProbeGroup
-    from probeinterface import write_prb
-    
     probegroup = ProbeGroup()
     for i in range(n):
         tetrode = generate_tetrode()
@@ -76,9 +77,17 @@ def generate_tetrodes(n):
         probegroup.add_probe(tetrode)
     
     
-    from probeinterface.plotting import plot_probe, plot_probe_group
     plot_probe_group(probegroup, with_channel_index = True)
     return probegroup
+
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) #gets rid of some annoying warnings
+from probeinterface import read_prb
+from probeinterface.plotting import plot_probe, plot_probe_group
+from pathlib import Path
+import probeinterface.probe
+import spikeinterface as si
+import spikeinterface.preprocessing as spre
 
 def preprocess(recording, recording_name, base_folder, electrode_type, num_channels):
     '''
@@ -86,19 +95,9 @@ def preprocess(recording, recording_name, base_folder, electrode_type, num_chann
     Cuts the recording to 'num_channels' channels
     Saves the recording to a preprocessing folder
     '''
-    import warnings
-    warnings.filterwarnings("ignore", category=DeprecationWarning) #gets rid of some annoying warnings
-    from probeinterface import read_prb
-    from probeinterface.plotting import plot_probe, plot_probe_group
-    from pathlib import Path
-    import probeinterface.probe
-    import spikeinterface as si
-    import spikeinterface.preprocessing as spre
-    
     preprocessing_folder = Path(f'{base_folder}/{recording_name}_preprocessed')
 
     if 'tetrode' in electrode_type:
-#         probe = read_prb('/home/isabella/Documents/isabella/klusta_testdata/spikeinterface/probes/8_tetrodes.prb') #Load probe
         probe = generate_tetrodes(int(num_channels/4))
 
     #Load probe
@@ -114,10 +113,8 @@ def preprocess(recording, recording_name, base_folder, electrode_type, num_chann
     #plt.savefig(f'{base_folder}/probe_layout.png')
 
     if (preprocessing_folder).is_dir():
-        print(preprocessing_folder)
         recording = si.load_extractor(preprocessing_folder)
-        print(f'{electrode_type} recording loaded from previous preprocessing\n')
-        print(recording)
+        print(f'{preprocessing_folder}\n{electrode_type} recording loaded from previous preprocessing\n {recording}')
         return recording
     else:
         channel_ids = recording.get_channel_ids()
@@ -140,20 +137,17 @@ def preprocess(recording, recording_name, base_folder, electrode_type, num_chann
         print('Recording preprocessed and saved\n')
         return recording
     
+import spikeinterface.sorters as ss
+from IPython.core.display import HTML
 
 def sort(recording, recording_name, base_folder, electrode_type, sorting_suffix):
-    # Takes a preprocessed Spikeinterface recording object, and sorts using Klusta or KS2
-    import warnings
-    warnings.filterwarnings("ignore", category=DeprecationWarning) #gets rid of some annoying warnings
-    from pathlib import Path
-    import spikeinterface as si
-    import spikeinterface.sorters as ss
-    from probeinterface import read_prb
-    
+    """
+    Takes a preprocessed Spikeinterface recording object, and sorts using Klusta or KS2
+    Saves the sorting to a folder in the base folder
+    """    
     sorting_path = Path(f'{base_folder}/{recording_name[:6]}_{sorting_suffix}') 
     
     #Restart kernel so ipython can find the newly written files
-    from IPython.core.display import HTML
     HTML("<script>Jupyter.notebook.kernel.restart()</script>")
 
     if (sorting_path).is_dir():

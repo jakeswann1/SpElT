@@ -32,7 +32,7 @@ def find_all_sessions(sheet_path, data_path, sorting_suffix):
     
     return session_dict
 
-from ephys import ephys
+from .ephys import ephys
 import pandas as pd
 
 def make_df_all_sessions(session_dict, recording_type = 'nexus'):
