@@ -89,7 +89,7 @@ import probeinterface.probe
 import spikeinterface as si
 import spikeinterface.preprocessing as spre
 
-def preprocess(recording, recording_name, base_folder, electrode_type, num_channels):
+def preprocess_axona(recording, recording_name, base_folder, electrode_type, num_channels):
     '''
     Adds a Probe object to a Spikeinterface recording object
     Cuts the recording to 'num_channels' channels
