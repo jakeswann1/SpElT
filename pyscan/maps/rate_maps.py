@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import uniform_filter
 import matplotlib.pyplot as plt
-from pyscan.postprocessing.adaptive_smooth import *
+from pyscan.maps.adaptive_smooth import *
 
 def bin_pos_data_axona(pos_data, bin_length = 2.5, speed_threshold = 2.5):
 
