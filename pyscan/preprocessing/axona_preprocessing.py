@@ -80,6 +80,7 @@ def generate_tetrodes(n):
     plot_probe_group(probegroup, with_channel_index = True)
     return probegroup
 
+import os
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning) #gets rid of some annoying warnings
 from probeinterface import read_prb
@@ -89,7 +90,7 @@ import probeinterface.probe
 import spikeinterface as si
 import spikeinterface.preprocessing as spre
 
-def preprocess_axona(recording, recording_name, base_folder, electrode_type, num_channels):
+def preprocess_axona(recording, recording_name, base_folder, electrode_type, num_channels, force_rerun = False):
     '''
     Adds a Probe object to a Spikeinterface recording object
     Cuts the recording to 'num_channels' channels
@@ -97,22 +98,24 @@ def preprocess_axona(recording, recording_name, base_folder, electrode_type, num
     '''
     preprocessing_folder = Path(f'{base_folder}/{recording_name}_preprocessed')
 
+    probe_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'probes')
+
     if 'tetrode' in electrode_type:
         probe = generate_tetrodes(int(num_channels/4))
-
-    #Load probe
+    #Load probes
     elif electrode_type == 'probe' or electrode_type == '32 ch four shanks':
-        probe = read_prb('probes/4x8_buzsaki_oneshank.prb') 
+        probe = read_prb(os.path.join(probe_folder, '4x8_buzsaki_oneshank.prb'))
     elif electrode_type == '5x12_buz':
-        probe = read_prb('probes/5x12-16_buz.prb')
+        probe = read_prb(os.path.join(probe_folder, '5x12-16_buz.prb'))
         
     else:
         raise ValueError('Electrode type is set wrong, please set to either "probe" or "tetrode"')
 
     #plot_probe_group(probe, with_channel_index = True)
     #plt.savefig(f'{base_folder}/probe_layout.png')
-
-    if (preprocessing_folder).is_dir():
+    
+    
+    if (preprocessing_folder).is_dir() and force_rerun == False:
         recording = si.load_extractor(preprocessing_folder)
         print(f'{preprocessing_folder}\n{electrode_type} recording loaded from previous preprocessing\n {recording}')
         return recording
@@ -133,7 +136,7 @@ def preprocess_axona(recording, recording_name, base_folder, electrode_type, num
             singleProbe = probeinterface.Probe.from_dict(probe.to_dict()['probes'][0])
             recording = recording.set_probe(singleProbe)
 
-        recording.save(folder=preprocessing_folder)
+        recording.save(folder=preprocessing_folder, overwrite=True)
         print('Recording preprocessed and saved\n')
         return recording
     
@@ -163,15 +166,17 @@ def sort(recording, recording_name, base_folder, electrode_type, sorting_suffix)
         if 'tetrode' in electrode_type:
             sorting = ss.run_sorter('klusta', recording, output_folder=f'{sorting_path}',
                         verbose = True, docker_image = False, **custom_tetrode_params())
+            print(f'Recording sorted!\n Klusta found {len(sorting.get_unit_ids())} units\n')
  
         # Run klusta on probe recording using custom_probe_params above
         elif electrode_type == 'probe' or electrode_type == '32 ch four shanks' or electrode_type == '5x12_buz':
             sorting = ss.run_sorter('kilosort2', recording, output_folder=f'{sorting_path}',
-                                    verbose = True, docker_image = True, **custom_ks2_params())            
+                                    verbose = True, docker_image = True, **custom_ks2_params()) 
+            print(f'Recording sorted!\n KS2 found {len(sorting.get_unit_ids())} units\n')           
         else:
             print('Tetrode type set wrong')
         
-        print(f'Recording sorted!\n KS2 found {len(sorting.get_unit_ids())} units\n')
+        
         sorting = sorting.remove_empty_units()          
         sorting.save(folder=sorting_path / 'sort')
         print(f'Sorting saved to {sorting_path}/sort\n')
