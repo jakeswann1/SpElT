@@ -8,7 +8,7 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix):
 
     if (sorting_path).is_dir():
         try:
-            sorting = si.load_extractor(sorting_path / 'sorter_output')
+            sorting = si.load_extractor(sorting_path / 'sort')
             print(f"Sorting loaded from file {sorting_path}\n")
         except ValueError:
             print(f"Sorting at {sorting_path} failed to load - try deleting the folder and rerun")
