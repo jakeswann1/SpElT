@@ -19,7 +19,18 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix):
                                         verbose = True, docker_image = False, remove_existing_folder = True)
 
         print(f'Recording sorted!\n KS4 found {len(sorting.get_unit_ids())} units\n')
+
         sorting = sorting.remove_empty_units()      
         sorting.save(folder=sorting_path / 'sort')
         print(f'Sorting saved to {sorting_path}/sort\n')
+
+        #Edit params.py file to point to new .dat file in the first line
+        with open(f'{sorting_path}/sorter_output/params.py', 'r+') as file:
+            lines = file.readlines()
+            file.seek(0)
+            file.write(f'dat_path = "{base_folder}/concat.dat"\n')
+            file.writelines(lines[1:])
+            file.truncate()
+            
+
         
