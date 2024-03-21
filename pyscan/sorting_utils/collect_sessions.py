@@ -11,7 +11,7 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort):
                 base_folder = sheet[sheet['trial_name'] == trial]['path'].tolist()[0]
                 num_channels = int(sheet[sheet['trial_name'] == trial]['num_channels'].tolist()[0])
                 electrode_type = sheet[sheet['trial_name'] == trial]['probe_type'].tolist()[0]
-                print(f"{base_folder}/{trial}")
+                print(f"Loading {base_folder}/{trial}")
 
                 if probe_to_sort == 'NP2_openephys':
                     recording = se.read_openephys(folder_path=f"{base_folder}/{trial}", stream_id = '0')

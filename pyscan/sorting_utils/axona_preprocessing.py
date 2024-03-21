@@ -144,7 +144,7 @@ def preprocess_axona(recording, recording_name, base_folder, electrode_type, num
 import spikeinterface.sorters as ss
 from IPython.core.display import HTML
 
-def sort(recording, recording_name, base_folder, electrode_type, sorting_suffix):
+def sort_axona(recording, recording_name, base_folder, electrode_type, sorting_suffix):
     """
     Takes a preprocessed Spikeinterface recording object, and sorts using Klusta or KS2
     Saves the sorting to a folder in the base folder
