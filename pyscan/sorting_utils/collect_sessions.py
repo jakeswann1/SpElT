@@ -15,26 +15,27 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort):
 
                 if probe_to_sort == 'NP2_openephys':
                     recording = se.read_openephys(folder_path=f"{base_folder}/{trial}", stream_id = '0')
-                    recording_list[i].append([recording,
-                            trial, 
-                            base_folder, 
-                            electrode_type])
                     
                 elif probe_to_sort == '5x12_buz':
                     recording = se.read_axona(f"{base_folder}/{trial}.set")
                     #Generate .pos file if not already present
                     if os.path.isfile(f'{base_folder}/{trial}.pos') == 0:
                         pos_from_bin(f'{base_folder}/{trial}')
-                    recording_list[i].append([preprocess_axona(recording = recording,
+                    #Preprocess recording
+                    recording = preprocess_axona(recording = recording,
                                         recording_name = trial,
                                         base_folder = base_folder,
                                         electrode_type = electrode_type,
-                                        num_channels = num_channels),
-                                        trial, 
-                                        base_folder, 
-                                        electrode_type])
-                    
+                                        num_channels = num_channels)
+                       
                 else:
                     raise ValueError('Probe type not recognized, currently only "NP2_openephys" and "5x12_buz" are supported.')
+                
+                trial_duration = recording.get_duration()
+                recording_list[i].append([recording,
+                                    trial, 
+                                    base_folder, 
+                                    electrode_type,
+                                    trial_duration])
                     
     return recording_list

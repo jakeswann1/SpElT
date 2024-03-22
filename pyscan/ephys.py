@@ -8,6 +8,7 @@ class ephys:
     '''
     A class to manage ephys data, including metadata, position, LFP, and spike data recorded from (currently): 
     - raw DACQ recordings sorted with Kilosort 2 and curated with phy
+    - Neuropixels 2 recordings acquired with OpenEphys, sorted with Kilosort 4 and curated with phy, with video tracking data from Bonsai
     
     Assumes a basic file structure of path_to_data/animal/YYYY-MM-DD/ for each session
 
@@ -55,7 +56,7 @@ class ephys:
         numpy, pandas
     '''
 
-    def __init__(self, recording_type, path):
+    def __init__(self, recording_type, path, sheet_url = None):
         """
         Initialize the ephys object.
 
@@ -79,14 +80,23 @@ class ephys:
         self.date = self.recording_path.split('/')[-1]
         self.date_short = f'{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}'
         self.animal = self.recording_path.split('/')[-2]
-        
+         
         # Get age and probe info from Google Sheet
-        df = gs_to_df('https://docs.google.com/spreadsheets/d/1_Xs5i-rHNTywV-WuQ8-TZliSjTxQCCqGWOD2AL_LIq0/edit#gid=0')
+        try:
+            df = gs_to_df(sheet_url)
+        except:
+            print('Google Sheet not found, please specify a valid URL')
+            
         self.age = int(df['Age'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0])
         self.probe_type = df['probe_type'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
         self.probe_channels = df['num_channels'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
 
-        self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks2_custom'
+        if self.recording_type == 'nexus':
+            self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks2_custom'
+        elif self.recording_type == 'NP2_openephys':
+            self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks4'
+        else:
+            raise ValueError('Recording type not recognised, please specify "nexus" or "NP2_openephys"')
         
         # Load session information from session.csv which is within the sorting folder as dataframe
         self.session = pd.read_csv(f'{self.sorting_path}/session.csv', index_col = 0)
@@ -97,13 +107,12 @@ class ephys:
         self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
         
         # Collect trial offsets for aligning spike data
-        recordings = self.session.iloc[:,0].to_list()
+        durations = self.session.iloc[:,4].to_list()
         self.trial_offsets = []
         offset = 0
-        for i in recordings:
+        for duration in durations:
             self.trial_offsets.append(offset)
-            i = float(i[-8:-1])
-            offset += i
+            offset += duration
 
         # Initialise data variables
         self.metadata = [None] * len(self.trial_list)
