@@ -106,7 +106,7 @@ class ephys:
         # Collect each trial number
         self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
         
-        # Collect trial offsets for aligning spike data
+        # Collect trial offsets for aligning spike data (measured in samples)
         durations = self.session.iloc[:,4].to_list()
         self.trial_offsets = []
         offset = 0
@@ -172,6 +172,9 @@ class ephys:
 
         Args:
             trial_list (int or array): The index of the trial for which position data is to be loaded.
+            output_flag (bool): if True, print a statement when loading the pos file (default True)
+            reload_flag (bool): if True, forces reloading of data. If
+                false, only loads data for trials with no position data loaded. Default False
 
         Populates:
             self.pos_data (list): A list that stores position data for each trial. The position data for the specified trial is added at the given index.
@@ -374,6 +377,13 @@ class ephys:
             self.spike_data (dict): A dictionary that stores spike times, spike clusters, and cluster quality for the recording session.
         """
         import spikeinterface.extractors as se
+
+        # Adjust sorting path for KS4-formatted sorting
+        if self.recording_type == 'NP2_openephys':
+            self.sorting_path = f'{self.sorting_path}/sorter_output'
+        else:
+            pass
+
         # Load spike times
         spike_times = np.load(f'{self.sorting_path}/spike_times.npy')
 
@@ -411,18 +421,17 @@ class ephys:
             
             
         
-        # Get sampling rate
-        sort = se.read_phy(f'{self.sorting_path}').__dict__
-        sampling_rate = sort['_sampling_frequency']
-        
         ### Add a label for which behavioural trial each included spike is from
-        
-        # Convert spike times into seconds and flatten into a 1D array
-        spike_times = np.divide(spike_times, sampling_rate).flatten()
+        # Flatten into a 1D array
+        spike_times = spike_times.flatten()
             
         # Determine the trial for each spike
         spike_trial = np.digitize(spike_times.flatten(), self.trial_offsets) - 1
         
+        # Convert spike times into seconds 
+        sort = se.read_phy(f'{self.sorting_path}').__dict__
+        sampling_rate = sort['_sampling_frequency']
+        np.divide(spike_times, sampling_rate)
 
         # Populate spike_data
         self.spike_data = {

@@ -31,7 +31,8 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort):
                 else:
                     raise ValueError('Probe type not recognized, currently only "NP2_openephys" and "5x12_buz" are supported.')
                 
-                trial_duration = recording.get_duration()
+                trial_duration = recording.get_num_samples()
+                print(trial_duration)
                 recording_list[i].append([recording,
                                     trial, 
                                     base_folder, 
