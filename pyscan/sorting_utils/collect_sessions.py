@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import spikeinterface.extractors as se
-from .axona_preprocessing import preprocess_axona, pos_from_bin
+from ..axona_utils.axona_preprocessing import preprocess_axona, pos_from_bin
 
 def collect_sessions(session_list, trial_list, sheet, probe_to_sort):
     recording_list = [[] for _ in range(len(session_list))]

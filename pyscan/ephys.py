@@ -1,8 +1,11 @@
 import pandas as pd
 import numpy as np
+import spikeinterface.extractors as se
 
 from .ephys_utils import gs_to_df
-from .postprocessing.postprocess_pos_data import process_position_data
+from .axona_utils.postprocess_pos_data import postprocess_pos_data
+from .axona_utils.load_pos_axona import load_pos_axona
+from .np2_utils.load_pos_dlc import load_pos_dlc
 
 class ephys:
     '''
@@ -118,6 +121,7 @@ class ephys:
         self.metadata = [None] * len(self.trial_list)
         self.lfp_data = [None] * len(self.trial_list)
         self.pos_data = [None] * len(self.trial_list)
+        self.sync_data = [None] * len(self.trial_list)
         self.spike_data = [None]
         
         
@@ -189,87 +193,36 @@ class ephys:
             if reload_flag == False and self.pos_data[trial_iterator] != None:
                 print(f'Position data already loaded for trial {trial_iterator}')
             else:
-
+                
                 # Get path of trial to load
                 path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
+                if output_flag:
+                    print(f'Loading position data for {self.trial_list[trial_iterator]}')
 
                 if self.recording_type == 'nexus':
-                    # Load position data from DACQ files
 
-                    if output_flag:
-                        print(f'Loading pos file: {path}.pos')
-
-                    # Read position data from csv file (faster)
-                    data = pd.read_csv(f'{path}_pos.csv', index_col = 0).T
-
-                    # Read header from pos file into dictionary
-                    with open(f'{path}.pos', 'rb') as fid:
-                        posHeader = {}
-
-                        # Read the lines of the file up to the specified number (27 in this case) and write into dict
-                        for _ in range(27):
-                            line = fid.readline()
-                            if not line:
-                                break
-                            elements = line.decode().strip().split()
-                            posHeader[elements[0]] = ' '.join(elements[1:])
-                            
-                    # Get sampling rate
-                    pos_sampling_rate = float(posHeader['sample_rate'][:-3])
-
-                    # Extract LED position data and tracked pixel size data
-                    led_pos = data.loc[:, ['X1', 'Y1', 'X2', 'Y2']]
-                    led_pix = data.loc[:, ['Pixels LED 1', 'Pixels LED 2']]
-
-                    # Set missing values to NaN
-                    led_pos[led_pos == 1023] = np.nan
-                    led_pix[led_pix == 1023] = np.nan
-
-                    ## Scale pos data to specific PPM 
-                    # Currently hard coded to 400 PPM
-                    realPPM = int(posHeader['pixels_per_metre'])
-
-                    # TERRIBLE HACK - NEEDS FIXING PROPERLY
-                    # If t-maze trial, rescale PPM because it isn't set right in pos file 
+                    # NEEDS FIXING PROPERLY!!!! If t-maze trial, rescale PPM because it isn't set right in pos file 
                     if 't-maze' in self.trial_list[trial_iterator]:
-                        realPPM = 615
-                        posHeader['pixels_per_metre'] = 615
+                        override_ppm = 615
                         if output_flag:
                             print(f'Real PPM artifically set to 615 (t-maze default)')
+                    else:
+                        override_ppm = None
 
-                    
-                    posHeader['scaled_ppm'] = 400
-                    goalPPM = 400
-                    scale_fact = goalPPM / realPPM
-
-                    # Scale area boundaries in place
-                    posHeader['min_x'] = int(posHeader['window_min_x']) * scale_fact
-                    posHeader['max_x'] = int(posHeader['window_max_x']) * scale_fact
-                    posHeader['min_y'] = int(posHeader['window_min_y']) * scale_fact
-                    posHeader['max_y'] = int(posHeader['window_max_y']) * scale_fact
-
-                    # Scale pos data in place
-                    led_pos['X1'] *= scale_fact
-                    led_pos['X2'] *= scale_fact
-                    led_pos['Y1'] *= scale_fact
-                    led_pos['Y2'] *= scale_fact
-
-                    # Collect header and data into a dict
-                    raw_pos_data = {'header': posHeader,
-                              'led_pos': led_pos.T,
-                              'led_pix': led_pix.T}
+                    # Load Axona pos data from csv file and preprocess
+                    raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
 
                     # Postprocess posdata and return to self as dict
-                    xy_pos, led_pos, led_pix, speed, direction, direction_disp = process_position_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
+                    xy_pos, led_pos, led_pix, speed, direction, direction_disp = postprocess_pos_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
                     
-                    # Divide by sampling rate to give dataframe columns in seconds
+                    # Rescale timestamps to seconds
                     xy_pos.columns /= pos_sampling_rate
                     led_pos.columns /= pos_sampling_rate
                     led_pix.columns /= pos_sampling_rate
-                    
+
                     # Populate processed pos data
                     self.pos_data[trial_iterator] = {
-                        'header': posHeader,
+                        'header': raw_pos_data['header'],
                         'xy_position': xy_pos,
                         'led_positions': led_pos,
                         'led_pixel_size': led_pix,
@@ -277,7 +230,42 @@ class ephys:
                         'direction': direction,
                         'direction_from_displacement': direction_disp,
                         'pos_sampling_rate': pos_sampling_rate
-                    }
+                }
+
+                elif self.recording_type == 'NP2_openephys':
+                    # Load DeepLabCut position data from csv file
+                    raw_pos_data, pos_sampling_rate = load_pos_dlc(path, 400)
+
+                    # Load TTL sync data
+                    sync_data = self.load_ttl()
+                    
+
+    def load_ttl(self, trial_iterators = None):
+        """
+        Load TTL data for a specified trial. Currently only from Dacq .ttl files
+
+        Args:
+            trial_list (int or array-like): The index of the trial for which TTL data is to be loaded.
+
+        Populates:
+            self.ttl_data (list): A list that stores TTL data for each trial. The TTL data for the specified trial is added at the given index.
+        """
+        # Deal with int trial_list
+        if isinstance(trial_iterators, int):
+            trial_iterators = [trial_iterators]
+        else:
+            trial_iterators = self.trial_iterators
+            print('No trial list specified, loading TTL data for all trials')
+            
+        for trial_iterator, _ in enumerate(trial_iterators):
+            # Get path of trial to load
+            path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
+            print(f'Loading TTL data for {self.trial_list[trial_iterator]}')
+
+            self.sync_data[trial_iterator] = {'ttl_timestamps': se.read_openephys_event(path).get_event_times(channel_id='Neuropixels PXI Sync'),
+                                              'recording_timestamps': se.read_openephys(path, load_sync_timestamps = True).get_times()}
+
+
                     
 
     def load_lfp(self, trial_list, sampling_rate, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = None):
