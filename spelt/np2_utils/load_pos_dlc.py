@@ -22,9 +22,7 @@ def load_pos_dlc(path, ppm):
     data.drop(columns=['bodyparts', 'coords'], inplace=True)
     data.set_index('Label', inplace=True)
 
-    pos_sampling_rate = 25
-    pos_header = {'pos_sampling_rate': pos_sampling_rate,
-                  'pixels_per_metre': ppm}
+    pos_header = {'pixels_per_metre': ppm}
 
     # Extract bodypart position FOR FIRST TWO BODY PARTS ONLY
     bodypart_pos = data.loc[:, ['bodypart1_x', 'bodypart1_y', 'bodypart2_x', 'bodypart2_y']]
@@ -41,4 +39,4 @@ def load_pos_dlc(path, ppm):
     raw_pos_data = {'header': pos_header,
                     'bodypart_pos': bodypart_pos}
     
-    return raw_pos_data, pos_sampling_rate
+    return raw_pos_data

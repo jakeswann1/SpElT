@@ -237,7 +237,15 @@ class ephys:
                     raw_pos_data, pos_sampling_rate = load_pos_dlc(path, 400)
 
                     # Load TTL sync data
-                    sync_data = self.load_ttl()
+                    ttl_times = self.load_ttl(trial_iterator)['ttl_timestamps']
+
+                    # Estimate the frame rate from the TTL data
+                    pos_sampling_rate = 1/np.mean(np.diff(ttl_times))
+                    raw_pos_data['header']['sampling_rate'] = pos_sampling_rate
+
+                    
+
+
                     
 
     def load_ttl(self, trial_iterators = None):
@@ -368,21 +376,22 @@ class ephys:
 
         # Adjust sorting path for KS4-formatted sorting
         if self.recording_type == 'NP2_openephys':
-            self.sorting_path = f'{self.sorting_path}/sorter_output'
+            sorting_path = f'{self.sorting_path}/sorter_output'
         else:
+            sorting_path = self.sorting_path
             pass
 
         # Load spike times
-        spike_times = np.load(f'{self.sorting_path}/spike_times.npy')
+        spike_times = np.load(f'{sorting_path}/spike_times.npy')
 
         # Load spike clusters
-        spike_clusters = np.load(f'{self.sorting_path}/spike_clusters.npy')
+        spike_clusters = np.load(f'{sorting_path}/spike_clusters.npy')
         
         # Load spike templates
-        spike_templates = np.load(f'{self.sorting_path}/spike_templates.npy')
+        spike_templates = np.load(f'{sorting_path}/spike_templates.npy')
         
         # Load cluster info
-        cluster_info = pd.read_csv(f'{self.sorting_path}/cluster_info.tsv', sep='\t', index_col = 0)
+        cluster_info = pd.read_csv(f'{sorting_path}/cluster_info.tsv', sep='\t', index_col = 0)
 
         if clusters_to_load is not None:
             
@@ -417,7 +426,7 @@ class ephys:
         spike_trial = np.digitize(spike_times.flatten(), self.trial_offsets) - 1
         
         # Convert spike times into seconds 
-        sort = se.read_phy(f'{self.sorting_path}').__dict__
+        sort = se.read_phy(f'{sorting_path}').__dict__
         sampling_rate = sort['_sampling_frequency']
         np.divide(spike_times, sampling_rate)
 
