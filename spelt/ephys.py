@@ -6,6 +6,7 @@ from .ephys_utils import gs_to_df
 from .axona_utils.postprocess_pos_data import postprocess_pos_data
 from .axona_utils.load_pos_axona import load_pos_axona
 from .np2_utils.load_pos_dlc import load_pos_dlc
+from .np2_utils.postprocess_dlc_data import postprocess_dlc_data
 
 class ephys:
     '''
@@ -109,13 +110,7 @@ class ephys:
         # Collect each trial number
         self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
         
-        # Collect trial offsets for aligning spike data (measured in samples)
-        durations = self.session.iloc[:,4].to_list()
-        self.trial_offsets = []
-        offset = 0
-        for duration in durations:
-            self.trial_offsets.append(offset)
-            offset += duration
+
 
         # Initialise data variables
         self.metadata = [None] * len(self.trial_list)
@@ -212,7 +207,7 @@ class ephys:
                     # Load Axona pos data from csv file and preprocess
                     raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
 
-                    # Postprocess posdata and return to self as dict
+                    # Postprocess posdata
                     xy_pos, led_pos, led_pix, speed, direction, direction_disp = postprocess_pos_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
                     
                     # Rescale timestamps to seconds
@@ -233,24 +228,43 @@ class ephys:
                 }
 
                 elif self.recording_type == 'NP2_openephys':
+
                     # Load DeepLabCut position data from csv file
-                    raw_pos_data, pos_sampling_rate = load_pos_dlc(path, 400)
+                    raw_pos_data = load_pos_dlc(path, 400)
 
                     # Load TTL sync data
-                    ttl_times = self.load_ttl(trial_iterator)['ttl_timestamps']
+                    if self.sync_data[trial_iterator] == None:
+                        self.load_ttl(trial_iterator, output_flag=False)
+                    ttl_times = self.sync_data[trial_iterator]['ttl_timestamps']
 
                     # Estimate the frame rate from the TTL data
-                    pos_sampling_rate = 1/np.mean(np.diff(ttl_times))
-                    raw_pos_data['header']['sampling_rate'] = pos_sampling_rate
+                    pos_sampling_rate = 1/np.mean(np.diff(ttl_times[1:]))
+                    raw_pos_data['header']['sample_rate'] = pos_sampling_rate
 
+                    # Add angle of tracked head point to header (probably 0)
+                    raw_pos_data['header']['tracked_point_angle_1'] = 0
+
+                    # Postprocess posdata
+                    xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
                     
+                    # Set timestamps to TTL times - USES THE FIRST TTL TIME AS THE START TIME AND CUTS OFF ANY PULSES
+                    xy_pos.columns = ttl_times[1:]
+                    tracked_points.columns = ttl_times[1:]
 
+                    # Populate processed pos data
+                    self.pos_data[trial_iterator] = {
+                        'header': raw_pos_data['header'],
+                        'xy_position': xy_pos,
+                        'tracked_points': tracked_points,
+                        'speed': speed, #in cm/s
+                        'direction': direction,
+                        'direction_from_displacement': direction_disp,
+                        'pos_sampling_rate': pos_sampling_rate
+                    }              
 
-                    
-
-    def load_ttl(self, trial_iterators = None):
+    def load_ttl(self, trial_iterators = None, output_flag = True):
         """
-        Load TTL data for a specified trial. Currently only from Dacq .ttl files
+        Load TTL data for a specified trial from OpenEphys recording
 
         Args:
             trial_list (int or array-like): The index of the trial for which TTL data is to be loaded.
@@ -265,10 +279,11 @@ class ephys:
             trial_iterators = self.trial_iterators
             print('No trial list specified, loading TTL data for all trials')
             
-        for trial_iterator, _ in enumerate(trial_iterators):
+        for trial_iterator in trial_iterators:
             # Get path of trial to load
             path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
-            print(f'Loading TTL data for {self.trial_list[trial_iterator]}')
+            if output_flag:
+                print(f'Loading TTL data for {self.trial_list[trial_iterator]}')
 
             self.sync_data[trial_iterator] = {'ttl_timestamps': se.read_openephys_event(path).get_event_times(channel_id='Neuropixels PXI Sync'),
                                               'recording_timestamps': se.read_openephys(path, load_sync_timestamps = True).get_times()}
@@ -381,6 +396,14 @@ class ephys:
             sorting_path = self.sorting_path
             pass
 
+        # Collect trial offsets for aligning spike data (measured in samples)
+        durations = self.session.iloc[:,4].to_list()
+        self.trial_offsets = []
+        offset = 0
+        for duration in durations:
+            self.trial_offsets.append(offset)
+            offset += duration
+
         # Load spike times
         spike_times = np.load(f'{sorting_path}/spike_times.npy')
 
@@ -428,7 +451,10 @@ class ephys:
         # Convert spike times into seconds 
         sort = se.read_phy(f'{sorting_path}').__dict__
         sampling_rate = sort['_sampling_frequency']
-        np.divide(spike_times, sampling_rate)
+        spike_times = spike_times / sampling_rate
+
+        # Create a list of trial offsets in seconds
+        self.trial_offsets_seconds = [offset / sampling_rate for offset in self.trial_offsets]
 
         # Populate spike_data
         self.spike_data = {
@@ -459,7 +485,12 @@ class ephys:
         self.mean_waveforms = {}
 
         # Get path to params.py
-        params_path = f'{self.sorting_path}/params.py'
+        if self.recording_type == 'nexus':
+            params_path = f'{self.sorting_path}/params.py'
+        elif self.recording_type == 'NP2_openephys':
+            params_path = f'{self.sorting_path}/sorter_output/params.py'
+        else:
+            raise ValueError('Recording type not recognised, please specify "nexus" or "NP2_openephys"')
 
         # Load the TemplateModel.
         model = load_model(params_path)

@@ -26,9 +26,11 @@ def find_all_sessions(sheet_path, data_path, sorting_suffix):
         date_short = i[:6]
         date_long = f'20{i[:2]}-{i[2:4]}-{i[4:6]}'
         
+        probe_type = sheet_inc[sheet_inc['trial_name'].str.contains(i)]['probe_type'].values[0]
+
         path_to_session = f'{data_path}/{animal}/{date_long}'
         
-        session_dict[i] = path_to_session
+        session_dict[i] = [path_to_session, probe_type]
     
     return session_dict
 
