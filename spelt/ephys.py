@@ -7,7 +7,6 @@ from .axona_utils.postprocess_pos_data import postprocess_pos_data
 from .axona_utils.load_pos_axona import load_pos_axona
 from .np2_utils.load_pos_dlc import load_pos_dlc
 from .np2_utils.postprocess_dlc_data import postprocess_dlc_data
-
 class ephys:
     '''
     A class to manage ephys data, including metadata, position, LFP, and spike data recorded from (currently): 
@@ -72,7 +71,6 @@ class ephys:
         ValueError: If no path is specified.
 
         """
-        
         self.recording_type = recording_type
         
         if path:
@@ -109,8 +107,6 @@ class ephys:
         self.trial_list = self.session.iloc[:,1].to_list()
         # Collect each trial number
         self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
-        
-
 
         # Initialise data variables
         self.metadata = [None] * len(self.trial_list)
@@ -118,7 +114,6 @@ class ephys:
         self.pos_data = [None] * len(self.trial_list)
         self.sync_data = [None] * len(self.trial_list)
         self.spike_data = [None]
-        
         
         # Set constants for position processing
         self.max_speed = 5
@@ -286,10 +281,7 @@ class ephys:
                 print(f'Loading TTL data for {self.trial_list[trial_iterator]}')
 
             self.sync_data[trial_iterator] = {'ttl_timestamps': se.read_openephys_event(path).get_event_times(channel_id='Neuropixels PXI Sync'),
-                                              'recording_timestamps': se.read_openephys(path, load_sync_timestamps = True).get_times()}
-
-
-                    
+                                              'recording_timestamps': se.read_openephys(path, load_sync_timestamps = True).get_times()}         
 
     def load_lfp(self, trial_list, sampling_rate, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = None):
         """
@@ -326,8 +318,6 @@ class ephys:
 
                 # Resample
                 recording = spre.resample(recording, sampling_rate)
-
-                
 
                 if bandpass_filter is not None:
                     # Bandpass filter
@@ -375,7 +365,6 @@ class ephys:
                 'channels': channels,
                 'gains': gains
                 }
-
         
     def load_spikes(self, clusters_to_load = None):
         """
@@ -487,6 +476,13 @@ class ephys:
         # Get path to params.py
         if self.recording_type == 'nexus':
             params_path = f'{self.sorting_path}/params.py'
+
+            # Load metadata for scaling traces (gains will load from the first trial)
+            self.load_metadata(0, output_flag=False)
+            set_header = self.metadata[0]
+            # Get ADC for recording
+            adc = int(set_header['ADC_fullscale_mv'])
+
         elif self.recording_type == 'NP2_openephys':
             params_path = f'{self.sorting_path}/sorter_output/params.py'
         else:
@@ -494,12 +490,6 @@ class ephys:
 
         # Load the TemplateModel.
         model = load_model(params_path)
-
-        # Load metadata for scaling traces (gains will load from the first trial)
-        self.load_metadata(0, output_flag=False)
-        set_header = self.metadata[0]
-        # Get ADC for recording
-        adc = int(set_header['ADC_fullscale_mv'])
 
         if clusters_to_load is None:
             clusters_to_load = self.spike_data['cluster_info'].index
@@ -520,5 +510,3 @@ class ephys:
 
             # Populate waveform_data
             self.mean_waveforms[cluster] = best_mean_waveform
-
-            
