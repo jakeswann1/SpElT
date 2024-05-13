@@ -7,7 +7,7 @@ def load_session(obj, lfp_sampling_rate):
     
     Params:
      - obj: instance of an ephys class object
-    '''
+     '''
     for i in range(len(obj.trial_list)):
         obj.load_metadata(i)
         obj.load_pos(i)
