@@ -2,7 +2,7 @@ from pathlib import Path
 import spikeinterface as si
 import spikeinterface.sorters as ss
 
-def sort_np2(recording, recording_name, base_folder, sorting_suffix):
+def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
 
     sorting_path = Path(f'{base_folder}/{recording_name[:6]}_{sorting_suffix}')
 
@@ -28,7 +28,7 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix):
         with open(f'{sorting_path}/sorter_output/params.py', 'r+') as file:
             lines = file.readlines()
             file.seek(0)
-            file.write(f'dat_path = "{base_folder}/concat.dat"\n')
+            file.write(f'dat_path = "{base_folder}/concat_{area}.dat"\n')
             file.writelines(lines[1:])
             file.truncate()
             
