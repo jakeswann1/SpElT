@@ -14,7 +14,5 @@ To extract and analyse CA1 pyramidal cell spike data:
 2. Run _Spike Sorting From Sheet.ipynb_ (requires correctly formatted Google Sheet and data directory, or you can load your own .xlsx)
 •	This runs collates individual trials into sessions, runs Kilosort 2/4 (depending on probe type) and extracts position data
 3. Manually curate spikes in phy
-4. Run _pyScan.postprocessing.Check Cell Identity.ipynb_
-•	This selects candidate pyramidal cells and saves their cluster IDs to a clusters_inc.npy
-5. Run _pyScan.analysis.All Pyramidal Cells Analysis.ipynb_ for spike analysis
-6. _pyScan.analysis.LFP analysis.ipynb_ (WIP) contains code to analyse LFP data from the same recordings
+4. Use the _spelt.ephys_ object and methods to load your data into the ephys object
+5. Use the analysis and mapping functions to solve the brain
