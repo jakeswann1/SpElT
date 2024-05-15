@@ -93,10 +93,12 @@ class ephys:
         self.probe_type = df['probe_type'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
         self.probe_channels = df['num_channels'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
 
+        self.area = df['Areas'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0] if 'Areas' in df.columns else None
+
         if self.recording_type == 'nexus':
             self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks2_custom'
         elif self.recording_type == 'NP2_openephys':
-            self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks4'
+            self.sorting_path = f'{self.recording_path}/{self.date_short}_{self.area}_sorting_ks4'
         else:
             raise ValueError('Recording type not recognised, please specify "nexus" or "NP2_openephys"')
         
@@ -160,7 +162,7 @@ class ephys:
                 #Populate basic metdata       
                 self.metadata[trial_iterator] = setHeader
 
-    def load_pos(self, trial_list, output_flag = True, reload_flag = False):
+    def load_pos(self, trial_list = None, output_flag = True, reload_flag = False):
         """
         Loads  and postprocesses the position data for a specified trial. Currently only from Dacq .pos files
 
@@ -176,6 +178,9 @@ class ephys:
         # Deal with int trial_list
         if isinstance(trial_list, int):
             trial_list = [trial_list]
+        elif trial_list is None:
+            trial_list = self.trial_iterators
+            print('No trial list specified, loading position data for all trials')
             
         for trial_iterator in trial_list:
         
@@ -283,7 +288,7 @@ class ephys:
             self.sync_data[trial_iterator] = {'ttl_timestamps': se.read_openephys_event(path).get_event_times(channel_id='Neuropixels PXI Sync'),
                                               'recording_timestamps': se.read_openephys(path, load_sync_timestamps = True).get_times()}         
 
-    def load_lfp(self, trial_list, sampling_rate, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = None):
+    def load_lfp(self, trial_list = None, sampling_rate = 1000, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = None):
         """
         Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
         Masks clipped values and scales to microvolts based on the gain in the .set file
@@ -299,12 +304,15 @@ class ephys:
         Populates:
             self.lfp_data (list): A list that stores LFP data for each trial. The LFP data for the specified trial is added at the given index.
         """        
-        from spikeinterface.extractors import read_axona
+        from spikeinterface.extractors import read_axona, read_openephys
         import spikeinterface.preprocessing as spre
         
         # Deal with int trial_list
         if isinstance(trial_list, int):
             trial_list = [trial_list]
+        elif trial_list is None:
+            trial_list = self.trial_iterators
+            print('No trial list specified, loading LFP data for all trials')
             
         for trial_iterator in trial_list:
 
@@ -313,11 +321,16 @@ class ephys:
                     print(f'LFP data already loaded for trial {trial_iterator}')
 
             else:
-                path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
-                recording = read_axona(path)
+                if self.recording_type == 'nexus':
+                    path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
+                    recording = read_axona(path)
+                elif self.recording_type == 'NP2_openephys':
+                    path = f'{self.recording_path}/{self.trial_list[trial_iterator]}/{self.area}'
+                    recording = read_openephys(path, stream_id = '0')
 
                 # Resample
                 recording = spre.resample(recording, sampling_rate)
+                print('Resampled to', sampling_rate, 'Hz for trial', trial_iterator, 'LFP')
 
                 if bandpass_filter is not None:
                     # Bandpass filter
@@ -329,41 +342,42 @@ class ephys:
                 if channels is not None:
                     channels = list(map(str, channels))
                     
-                lfp_data = recording.get_traces(start_frame = None, end_frame = None, channel_ids = channels).astype(float)
+                lfp_data = recording.get_traces(start_frame = None, end_frame = None, channel_ids = channels, return_scaled=True).astype(float)
                 
                 lfp_timestamps = recording.get_times()
 
-                # Mask clipped values of +- 32000
-                clip_mask = np.logical_or(lfp_data > 32000, lfp_data < -32000)
+                # AXONA ONLY: mask clipped values of +- 32000 & scale to uv
+                if self.recording_type == 'nexus':
+                    clip_mask = np.logical_or(lfp_data > 32000, lfp_data < -32000)
                 
-                # Scale traces to uv - method taken from getLFPV.m by Roddy Grieves 2018
-                # Raw file samples are stored with 16-bit resolution, so range from -32768 to 32767
-                if scale_to_uv is True:
-                    # Load .set metadata
-                    self.load_metadata(trial_iterator, output_flag = False)
-                    set_header = self.metadata[trial_iterator]
-                    # Get ADC for recording
-                    adc = int(set_header['ADC_fullscale_mv'])
-                    
-                    # Get channel gains
-                    gains = np.empty(len(channels))
-                    for n, channel in enumerate(channels):
-                        gains[n] = set_header[f'gain_ch_{channel}']
-                    
-                    # Scale traces
-                    lfp_data = lfp_data / 32768 * adc * 1000 
-                    lfp_data = lfp_data / gains.T
+                    # Scale traces to uv - method taken from getLFPV.m by Roddy Grieves 2018
+                    # Raw file samples are stored with 16-bit resolution, so range from -32768 to 32767
+                    if scale_to_uv is True:
+                        # Load .set metadata
+                        self.load_metadata(trial_iterator, output_flag = False)
+                        set_header = self.metadata[trial_iterator]
+                        # Get ADC for recording
+                        adc = int(set_header['ADC_fullscale_mv'])
                         
-                else:
-                    gains = None
+                        # Get channel gains
+                        gains = np.empty(len(channels))
+                        for n, channel in enumerate(channels):
+                            gains[n] = set_header[f'gain_ch_{channel}']
+                        
+                        # Scale traces
+                        lfp_data = lfp_data / 32768 * adc * 1000 
+                        lfp_data = lfp_data / gains.T
+
+                        self.lfp_data[trial_iterator]['gains'] = gains
+                        self.lfp_data[trial_iterator]['clip_mask'] = clip_mask
+                        
+
 
                 self.lfp_data[trial_iterator] = {
                 'data': lfp_data,
                 'timestamps': lfp_timestamps,
-                'clip_mask': clip_mask,
                 'sampling_rate': sampling_rate,
                 'channels': channels,
-                'gains': gains
                 }
         
     def load_spikes(self, clusters_to_load = None):

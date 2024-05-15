@@ -75,7 +75,7 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
 
                 recording_data = [recording, trial, base_folder, trial_info['probe_type'], trial_duration]
                 if area_list is not None:
-                    recording_data.insert(4, area)
+                    recording_data.append(area)
                 recording_list[i].append(recording_data)
                 
     return recording_list
