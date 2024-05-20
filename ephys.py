@@ -400,7 +400,7 @@ class ephys:
             sorting_path = self.sorting_path
 
         # Collect trial offsets for aligning spike data (measured in samples)
-        durations = self.session.iloc[:,4].to_list()
+        durations = self.session.iloc[:,5].to_list()
         self.trial_offsets = []
         offset = 0
         for duration in durations:
