@@ -7,6 +7,7 @@ from .ephys_utils import gs_to_df
 from .axona_utils.postprocess_pos_data import postprocess_pos_data
 from .axona_utils.load_pos_axona import load_pos_axona
 from .np2_utils.load_pos_dlc import load_pos_dlc
+from .np2_utils.load_pos_bonsai import load_pos_bonsai
 from .np2_utils.postprocess_dlc_data import postprocess_dlc_data
 class ephys:
     '''
@@ -230,9 +231,6 @@ class ephys:
 
                 elif self.recording_type == 'NP2_openephys':
 
-                    # Load DeepLabCut position data from csv file
-                    raw_pos_data = load_pos_dlc(path, 400)
-
                     # Load TTL sync data
                     if self.sync_data[trial_iterator] == None:
                         self.load_ttl(trial_iterator, output_flag=False)
@@ -242,12 +240,29 @@ class ephys:
                     pos_sampling_rate = 1/np.mean(np.diff(ttl_times[1:]))
                     raw_pos_data['header']['sample_rate'] = pos_sampling_rate
 
-                    # Add angle of tracked head point to header (probably 0)
-                    raw_pos_data['header']['tracked_point_angle_1'] = 0
+                    if (path / 'dlc.csv').exists() == True:
+                        if output_flag:
+                            print('Loading DLC position data')
+                        # Load DeepLabCut position data from csv file
+                        raw_pos_data = load_pos_dlc(path, 400) #HARDCODED PPM FOR NOW - NEEDS CHANGING
+                        
+                        # Add angle of tracked head point to header (probably 0)
+                        raw_pos_data['header']['tracked_point_angle_1'] = 0
+                        
+                        # Postprocess posdata
+                        xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
 
-                    # Postprocess posdata
-                    xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
-                    
+                    elif (path/'bonsai.csv').exists() == True:
+                        if output_flag:
+                            print('Loading raw Bonsai position data')
+                        raw_pos_data = load_pos_bonsai(path, 400) #HARDCODED PPM FOR NOW - NEEDS CHANGING
+                        raw_pos_data['header']['bearing_colour_1'] = 90
+                        postprocess_pos_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
+
+                    else:
+                        print(f'No position data found for trial {trial_iterator}')
+                        raw_pos_data = None
+
                     # Set timestamps to TTL times - USES THE FIRST TTL TIME AS THE START TIME AND CUTS OFF ANY PULSES
                     xy_pos.columns = ttl_times[1:]
                     tracked_points.columns = ttl_times[1:]
@@ -287,7 +302,9 @@ class ephys:
                 print(f'Loading TTL data for {self.trial_list[trial_iterator]}')
 
             self.sync_data[trial_iterator] = {'ttl_timestamps': se.read_openephys_event(path).get_event_times(channel_id='Neuropixels PXI Sync'),
-                                              'recording_timestamps': se.read_openephys(path, load_sync_timestamps = True).get_times()}         
+                                              'recording_timestamps': se.read_openephys(path, load_sync_timestamps = True).get_times()}   
+            if self.sync_data[trial_iterator]['ttl_timestamps'] is None:
+                print(f'No TTL data found for trial {trial_iterator}')
 
     def load_lfp(self, trial_list = None, sampling_rate = 1000, channels = None, scale_to_uv = True, reload_flag = False, bandpass_filter = None):
         """

@@ -242,13 +242,17 @@ def calculate_speed(pos, pos_sample_rate, pix_per_metre):
 def postprocess_pos_data(posdata, max_speed, smoothing_window_size):
     
     # Check for LED swaps and apply LED swap filter
-    led_pos, led_pix = led_swap_filter(posdata['led_pos'].to_numpy(), posdata['led_pix'].to_numpy())
+    #Check if 'led_pix' is in the posdata
+    if 'led_pix' in posdata:
+        led_pos, led_pix = led_swap_filter(posdata['led_pos'].to_numpy(), posdata['led_pix'].to_numpy())
+    else:
+        led_pos, led_pix = led_swap_filter(posdata['led_pos'].to_numpy(), np.zeros((2, posdata['led_pos'].shape[1])))
     
     # Filter points for those moving impossibly fast and set led_pos_x to NaN
     ppm = int(posdata['header']['scaled_ppm'])
     pos_sample_rate = float(posdata['header']['sample_rate'][:-3])
     
-    max_pix_per_sample = max_speed*ppm/pos_sample_rate;
+    max_pix_per_sample = max_speed*ppm/pos_sample_rate
     n_jumpy, led_pos = led_speed_filter(led_pos, max_pix_per_sample*100)
     
     # Interpolate NaN values
