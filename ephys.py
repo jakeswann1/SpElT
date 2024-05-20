@@ -238,7 +238,6 @@ class ephys:
 
                     # Estimate the frame rate from the TTL data
                     pos_sampling_rate = 1/np.mean(np.diff(ttl_times[1:]))
-                    raw_pos_data['header']['sample_rate'] = pos_sampling_rate
 
                     if (path / 'dlc.csv').exists() == True:
                         if output_flag:
@@ -248,20 +247,21 @@ class ephys:
                         
                         # Add angle of tracked head point to header (probably 0)
                         raw_pos_data['header']['tracked_point_angle_1'] = 0
-                        
-                        # Postprocess posdata
-                        xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
 
                     elif (path/'bonsai.csv').exists() == True:
                         if output_flag:
                             print('Loading raw Bonsai position data')
                         raw_pos_data = load_pos_bonsai(path, 400) #HARDCODED PPM FOR NOW - NEEDS CHANGING
                         raw_pos_data['header']['bearing_colour_1'] = 90
-                        postprocess_pos_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
 
                     else:
                         print(f'No position data found for trial {trial_iterator}')
                         raw_pos_data = None
+
+                    # Postprocess posdata
+                    xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
+
+                    raw_pos_data['header']['sample_rate'] = pos_sampling_rate
 
                     # Set timestamps to TTL times - USES THE FIRST TTL TIME AS THE START TIME AND CUTS OFF ANY PULSES
                     xy_pos.columns = ttl_times[1:]

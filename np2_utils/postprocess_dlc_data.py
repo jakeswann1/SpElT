@@ -1,4 +1,3 @@
-import struct
 import numpy as np
 import pandas as pd
 from scipy.ndimage import uniform_filter
@@ -12,36 +11,28 @@ def led_speed_filter(led_pos, max_pix_per_sample):
     Parameters:
     led_pos: pandas DataFrame of shape (4, n_pos) containing the x, y position of each LED, in the order [X1, Y1, X2, Y2]
     max_pix_per_sample: maximum allowed speed of the LED in pixels per sample
-    led: index of the LED to filter (1 for LED 1, 2 for LED 2)
 
     Returns:
     n_jumpy: number of positions that were filtered out
     led_pos: filtered led_pos DataFrame
     """
+    n_jumpy = 0
+
     # For each LED (should be 2)
-    for i in range(0,np.shape(led_pos)[0],2):
+    for i in range(0, np.shape(led_pos)[0], 2):
         
         # Get indices of positions where the LED was tracked
         ok_pos = np.where(~led_pos.iloc[i, :].isna() | ~led_pos.iloc[i+1, :].isna())[0]
 
-        if len(ok_pos) < 2:
-            print(f"Warning: < 2 tracked points for LED {i // 2 + 1}")
-
         mpps_sqd = max_pix_per_sample**2
-
-        n_jumpy = 0
         prev_pos = ok_pos[0]
         
         for pos in ok_pos[1:]:
             # Calculate speed of shift from prev_pos in pixels per sample (squared)
+            pix_per_sample_sqd = ((led_pos.iloc[i, pos] - led_pos.iloc[i, prev_pos])**2 + 
+                                  (led_pos.iloc[i+1, pos] - led_pos.iloc[i+1, prev_pos])**2) / (pos - prev_pos)**2
             
-            #Calculation:
-            #Euclidean distance (in pixels) between current and previous position per LED squared (so positive),
-            #divided by the number of samples between this position and the previous valid position all squared
-            
-            pix_per_sample_sqd = (led_pos.iloc[i, pos] - led_pos.iloc[i, prev_pos])**2 + (led_pos.iloc[i+1, pos] - led_pos.iloc[i+1, prev_pos])**2 / (pos-prev_pos)**2
-            
-            #Compare with threshold and add 1 to n_jumpy counter if too fast, or set as new valid prev_pos
+            # Compare with threshold and add 1 to n_jumpy counter if too fast, or set as new valid prev_pos
             if pix_per_sample_sqd > mpps_sqd:
                 led_pos.iloc[i:i+2, pos] = np.nan
                 n_jumpy += 1
@@ -49,6 +40,7 @@ def led_speed_filter(led_pos, max_pix_per_sample):
                 prev_pos = pos
 
     return n_jumpy, led_pos
+
 
 def interpolate_nan_values(df):
     """
@@ -151,25 +143,30 @@ def calculate_speed(pos, pos_sample_rate, pix_per_metre):
 # Function to process position data
 def postprocess_dlc_data(posdata, max_speed, smoothing_window_size):
 
-    tracked_points = posdata['bodypart_pos']
+    if 'bodypart_pos' in posdata:  
+        tracked_points = posdata['bodypart_pos']
+        # To correct for tracked point orientation, we need to subtract the head point angle value from the direction
+        correction = int(posdata['header']['tracked_point_angle_1'])
+    elif 'led_pos' in posdata:
+        tracked_points = posdata['led_pos']
+        # To correct for tracked point orientation, we need to subtract position of LED 1 from the direction
+        correction = int(posdata['header']['bearing_colour_1'])
     
     # Filter points for those moving impossibly fast and set tracked_points_x to NaN
     ppm = int(posdata['header']['scaled_ppm'])
     pos_sample_rate = float(posdata['header']['sample_rate'])
     
     max_pix_per_sample = max_speed*ppm/pos_sample_rate
-    n_jumpy, tracked_points = led_speed_filter(tracked_points, max_pix_per_sample*100)
-    
+
     # Interpolate NaN values
     tracked_points = interpolate_nan_values(tracked_points)
+
+    n_jumpy, tracked_points = led_speed_filter(tracked_points, max_pix_per_sample*100)
     
     # Smooth data
     tracked_points = boxcar_smooth(tracked_points, window_size=smoothing_window_size)
         
     # Calculate direction
-    # To correct for tracked point orientation, we need to subtract the head point angle value from the direction
-    correction = int(posdata['header']['tracked_point_angle_1'])
-    
     direction = np.mod((180/np.pi) * (np.arctan2(-tracked_points.iloc[1, :] + tracked_points.iloc[3, :], tracked_points.iloc[0, :] - tracked_points.iloc[2, :])) - correction, 360)
 
     # Get position from smoothed individual lights

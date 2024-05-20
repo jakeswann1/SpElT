@@ -19,12 +19,12 @@ def load_pos_bonsai(path, ppm):
     """
 
     # Read position data from csv file
-    data = pd.read_csv(f'{path}/bonsai.csv', index_col = 0).T
+    data = pd.read_csv(f'{path}/bonsai.csv', index_col = 0)
 
     pos_header = {'pixels_per_metre': ppm}
 
     # Extract LED position data and tracked pixel size data
-    led_pos = data.loc[:, ['Item2.X', 'Item2.Y', 'Item3.X', 'Item3.Y']]
+    led_pos = data.loc[:, ['Item2.X', 'Item2.Y', 'Item3.X', 'Item3.Y']].T
 
     #Scale pos data to specific PPM
     real_ppm = ppm
