@@ -365,6 +365,7 @@ class ephys:
                         for n, channel in enumerate(channels):
                             gains[n] = set_header[f'gain_ch_{channel}']
                         
+                        
                         # Scale traces
                         lfp_data = lfp_data / 32768 * adc * 1000 
                         lfp_data = lfp_data / gains.T
