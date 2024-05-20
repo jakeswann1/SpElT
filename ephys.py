@@ -1,3 +1,4 @@
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import spikeinterface.extractors as se
@@ -74,36 +75,36 @@ class ephys:
         self.recording_type = recording_type
         
         if path:
-            self.recording_path = path
+            self.recording_path = Path(path)
         else:
             raise ValueError('No path specified')
-        
+
         # Get date and animal ID from path
-        self.date = self.recording_path.split('/')[-1]
+        self.date = self.recording_path.parts[-1]
         self.date_short = f'{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}'
-        self.animal = self.recording_path.split('/')[-2]
-         
+        self.animal = self.recording_path.parts[-2]
+
         # Get age and probe info from Google Sheet
         try:
             df = gs_to_df(sheet_url)
-        except:
+        except Exception as e:
             print('Google Sheet not found, please specify a valid URL')
-            
+            raise e
+
         self.age = int(df['Age'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0])
         self.probe_type = df['probe_type'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
         self.probe_channels = df['num_channels'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0]
-
         self.area = df['Areas'].loc[df['Session'] == f'{self.animal}_{self.date_short}'].iloc[0] if 'Areas' in df.columns else None
 
         if self.recording_type == 'nexus':
-            self.sorting_path = f'{self.recording_path}/{self.date_short}_sorting_ks2_custom'
+            self.sorting_path = self.recording_path / f'{self.date_short}_sorting_ks2_custom'
         elif self.recording_type == 'NP2_openephys':
-            self.sorting_path = f'{self.recording_path}/{self.date_short}_{self.area}_sorting_ks4'
+            self.sorting_path = self.recording_path / f'{self.date_short}_{self.area}_sorting_ks4'
         else:
             raise ValueError('Recording type not recognised, please specify "nexus" or "NP2_openephys"')
-        
+
         # Load session information from session.csv which is within the sorting folder as dataframe
-        self.session = pd.read_csv(f'{self.sorting_path}/session.csv', index_col = 0)
+        self.session = pd.read_csv(self.sorting_path / 'session.csv', index_col=0)
         
         # Collect each trial name
         self.trial_list = self.session.iloc[:,1].to_list()
@@ -140,7 +141,7 @@ class ephys:
         for trial_iterator in trial_list:
             if self.recording_type == 'nexus':
                 # Get path of trial to load
-                path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
+                path = self.recording_path / f'{self.trial_list[trial_iterator]}.set'
                 
                 if output_flag is True:
                     print(f'Loading set file: {path}')
@@ -190,7 +191,7 @@ class ephys:
             else:
                 
                 # Get path of trial to load
-                path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
+                path = self.recording_path / self.trial_list[trial_iterator]
                 if output_flag:
                     print(f'Loading position data for {self.trial_list[trial_iterator]}')
 
@@ -281,7 +282,7 @@ class ephys:
             
         for trial_iterator in trial_iterators:
             # Get path of trial to load
-            path = f'{self.recording_path}/{self.trial_list[trial_iterator]}'
+            path = self.recording_path / self.trial_list[trial_iterator]
             if output_flag:
                 print(f'Loading TTL data for {self.trial_list[trial_iterator]}')
 
@@ -322,11 +323,11 @@ class ephys:
 
             else:
                 if self.recording_type == 'nexus':
-                    path = f'{self.recording_path}/{self.trial_list[trial_iterator]}.set'
+                    path = self.recording_path / f'{self.trial_list[trial_iterator]}.set'
                     recording = read_axona(path)
                 elif self.recording_type == 'NP2_openephys':
-                    path = f'{self.recording_path}/{self.trial_list[trial_iterator]}/{self.area}'
-                    recording = read_openephys(path, stream_id = '0')
+                    path = self.recording_path / self.trial_list[trial_iterator] / self.area
+                    recording = read_openephys(path, stream_id='0')
 
                 # Resample
                 recording = spre.resample(recording, sampling_rate)
@@ -394,10 +395,9 @@ class ephys:
 
         # Adjust sorting path for KS4-formatted sorting
         if self.recording_type == 'NP2_openephys':
-            sorting_path = f'{self.sorting_path}/sorter_output'
+            sorting_path = self.sorting_path / 'sorter_output'
         else:
             sorting_path = self.sorting_path
-            pass
 
         # Collect trial offsets for aligning spike data (measured in samples)
         durations = self.session.iloc[:,4].to_list()
@@ -407,13 +407,9 @@ class ephys:
             self.trial_offsets.append(offset)
             offset += duration
 
-        # Load spike times
+        # Load spike times, clusters, templates
         spike_times = np.load(f'{sorting_path}/spike_times.npy')
-
-        # Load spike clusters
         spike_clusters = np.load(f'{sorting_path}/spike_clusters.npy')
-        
-        # Load spike templates
         spike_templates = np.load(f'{sorting_path}/spike_templates.npy')
         
         # Load cluster info
@@ -441,8 +437,6 @@ class ephys:
                 spike_times = spike_times[mask]
                 spike_clusters = spike_clusters[mask]
                 spike_templates = spike_templates[mask]
-            
-            
         
         ### Add a label for which behavioural trial each included spike is from
         # Flatten into a 1D array
@@ -489,7 +483,7 @@ class ephys:
 
         # Get path to params.py
         if self.recording_type == 'nexus':
-            params_path = f'{self.sorting_path}/params.py'
+            params_path = self.sorting_path / 'params.py'
 
             # Load metadata for scaling traces (gains will load from the first trial)
             self.load_metadata(0, output_flag=False)
@@ -498,7 +492,7 @@ class ephys:
             adc = int(set_header['ADC_fullscale_mv'])
 
         elif self.recording_type == 'NP2_openephys':
-            params_path = f'{self.sorting_path}/sorter_output/params.py'
+            params_path = self.sorting_path / 'sorter_output' / 'params.py'
         else:
             raise ValueError('Recording type not recognised, please specify "nexus" or "NP2_openephys"')
 
