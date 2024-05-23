@@ -257,15 +257,23 @@ class ephys:
                     else:
                         print(f'No position data found for trial {trial_iterator}')
                         raw_pos_data = None
+                    raw_pos_data['header']['sample_rate'] = pos_sampling_rate
 
                     raw_pos_data['header']['sample_rate'] = pos_sampling_rate
 
                     # Postprocess posdata
                     xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
 
-                    # Set timestamps to TTL times - USES THE FIRST TTL TIME AS THE START TIME AND CUTS OFF ANY PULSES
-                    xy_pos.columns = ttl_times[1:]
-                    tracked_points.columns = ttl_times[1:]
+                    # Set timestamps to TTL times - USES THE FIRST TTL TIME AS THE START TIME
+                    # NEEDS FIXING PROPERLY - THINK ABOUT HOW TO TIMESTAMP EACH FRAME ACCURATELY
+                    n_frames = len(xy_pos.columns)
+                    if len(ttl_times) < n_frames:
+                        #Make up times at sample rate
+                        for i in range(n_frames-len(ttl_times)+1):
+                            ttl_times = np.append(ttl_times, ttl_times[-1] + (i+1/pos_sampling_rate))
+                            
+                    xy_pos.columns = ttl_times[1:n_frames+1]
+                    tracked_points.columns = ttl_times[1:n_frames+1]
 
                     # Populate processed pos data
                     self.pos_data[trial_iterator] = {
@@ -291,6 +299,8 @@ class ephys:
         # Deal with int trial_list
         if isinstance(trial_iterators, int):
             trial_iterators = [trial_iterators]
+        elif isinstance(trial_iterators, list):
+            pass
         else:
             trial_iterators = self.trial_iterators
             print('No trial list specified, loading TTL data for all trials') if output_flag else None
@@ -417,7 +427,7 @@ class ephys:
             sorting_path = self.sorting_path
 
         # Collect trial offsets for aligning spike data (measured in samples)
-        durations = self.session.iloc[:,4].to_list()
+        durations = self.session.iloc[:,5].to_list()
         self.trial_offsets = []
         offset = 0
         for duration in durations:
