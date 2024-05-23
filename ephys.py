@@ -259,6 +259,8 @@ class ephys:
                         raw_pos_data = None
                     raw_pos_data['header']['sample_rate'] = pos_sampling_rate
 
+                    raw_pos_data['header']['sample_rate'] = pos_sampling_rate
+
                     # Postprocess posdata
                     xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(raw_pos_data, self.max_speed, self.smoothing_window_size)
 
@@ -301,7 +303,7 @@ class ephys:
             pass
         else:
             trial_iterators = self.trial_iterators
-            print('No trial list specified, loading TTL data for all trials')
+            print('No trial list specified, loading TTL data for all trials') if output_flag else None
             
         for trial_iterator in trial_iterators:
             # Get path of trial to load
