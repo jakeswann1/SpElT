@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import uniform_filter
 import matplotlib.pyplot as plt
-from spelt.maps.adaptive_smooth import *
-
+from .adaptive_smooth import *
 
 def make_rate_maps(spike_data, pos_sample_times, pos_bin_idx, pos_sampling_rate, dt = 1.0, adaptive_smoothing = True, alpha = 200, max_rates = True):
     """
