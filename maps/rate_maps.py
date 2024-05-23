@@ -286,10 +286,10 @@ def bin_pos_data_dlc(pos_data, bin_length = 2.5, speed_threshold = 2.5):
 
     # Extract raw field of view (FOV) pixel boundaries -CURRENLY SET TO MAX AND MIN VALUES OF POSITION DATA - NEED TO CHANGE
     # These coordinates are rounded to the nearest lower and upper bin edges, respectively
-    min_x_raw = np.floor_divide(min(positions.loc['X']), bin_length) * bin_length
-    max_x_raw = np.ceil(max(positions.loc['X']) / bin_length) * bin_length
-    min_y_raw = np.floor_divide(min(positions.loc['Y']), bin_length) * bin_length
-    max_y_raw = np.ceil(max(positions.loc['Y']) / bin_length) * bin_length
+    min_x_raw = np.floor_divide(np.nanmin(positions.loc['X']), bin_length) * bin_length
+    max_x_raw = np.ceil(np.nanmax(positions.loc['X']) / bin_length) * bin_length
+    min_y_raw = np.floor_divide(np.nanmin(positions.loc['Y']), bin_length) * bin_length
+    max_y_raw = np.ceil(np.nanmax(positions.loc['Y']) / bin_length) * bin_length
 
     # TRANSLATE POSITION VALUES SO THAT MIN X and Y ARE 0 - TEMP
     positions.loc['X'] = positions.loc['X'] - min_x_raw
@@ -343,10 +343,13 @@ def make_rate_maps_from_obj(obj):
     pos_sample_times = {}
     pos_sampling_rate = {}
 
+    if obj.spike_data == [None]:
+        obj.load_spikes()
+
     # Make rate maps for all trials in an ephys object
     for trial, _ in enumerate(obj.trial_iterators):
         
-        # Load unloaded position data if any
+        # Load unloaded position and spike data if any
         try:
             obj.load_pos(trial, reload_flag = False)
         except:
