@@ -21,6 +21,7 @@ def create_direction_polar_plot(spike_stamps, frame_times, directions, direction
         'Direction': directions
     })
 
+    
     # Bin the direction data
     bin_labels = [f'{direction_bins[i]}-{direction_bins[i+1]}' for i in range(len(direction_bins)-1)]
     print(bin_labels)
