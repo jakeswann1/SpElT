@@ -106,21 +106,30 @@ def make_rate_maps(spike_data, pos_sample_times, pos_bin_idx, pos_sampling_rate,
         return rate_maps_dict, pos_map
 
 
-
-def plot_cluster_across_session(rate_maps_dict, cluster_id, max_rates_dict, mean_rates_dict, spatial_info_dict, spatial_significance_dict, session="N/A", age=None):
+def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
     """
     Plots rate maps for a given cluster across multiple trials.
 
     Args:
         rate_maps_dict (dict): A dictionary containing rate maps for each trial.
         cluster_id (int): The ID of the cluster to plot.
-        max_rates_dict (dict): A dictionary containing maximum firing rates for each trial and cluster.
-        mean_rates_dict (dict): A dictionary containing mean firing rates for each trial and cluster.
-        spatial_info_dict (dict): A dictionary containing spatial information for each trial and cluster.
-        spatial_significance_dict (dict): A dictionary containing spatial significance for each trial and cluster.
-        session (str, optional): The session identifier. Defaults to "N/A".
-        age (int, optional): The age of the cluster. Defaults to None.
+        kwargs: Optional keyword arguments including:
+            - max_rates_dict (dict): A dictionary containing maximum firing rates for each trial and cluster.
+            - mean_rates_dict (dict): A dictionary containing mean firing rates for each trial and cluster.
+            - spatial_info_dict (dict): A dictionary containing spatial information for each trial and cluster.
+            - spatial_significance_dict (dict): A dictionary containing spatial significance for each trial and cluster.
+            - session (str): The session identifier. Defaults to "N/A".
+            - age (int): The age of the cluster. Defaults to None.
     """
+
+    # Default values
+    session = kwargs.get('session', "N/A")
+    age = kwargs.get('age', None)
+    max_rates_dict = kwargs.get('max_rates_dict', {})
+    mean_rates_dict = kwargs.get('mean_rates_dict', {})
+    spatial_info_dict = kwargs.get('spatial_info_dict', {})
+    spatial_significance_dict = kwargs.get('spatial_significance_dict', {})
+
     n_sessions = sum(cluster_id in sub_dict for sub_dict in rate_maps_dict.values())
     
     if n_sessions == 0:
@@ -129,7 +138,16 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, max_rates_dict, mean
     
     # Create a figure with subplots for each session
     fig, axes = plt.subplots(1, n_sessions, figsize=(15, 5))
-    fig.suptitle(f"Rate maps for Session {session} Cluster {cluster_id} Age P{age}", y = 1.1)
+    
+    # Build the suptitle dynamically
+    suptitle_parts = [f"Rate maps for Cluster {cluster_id}"]
+    if session != "N/A":
+        suptitle_parts.append(f"Session {session}")
+    if age is not None:
+        suptitle_parts.append(f"Age P{age}")
+    suptitle = " ".join(suptitle_parts)
+    
+    fig.suptitle(suptitle, y=1.1)
     
     # Convert axes to list if there is only one session
     if n_sessions == 1:
@@ -142,12 +160,23 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, max_rates_dict, mean
             try:
                 rate_map = sub_dict[cluster_id]
                 axes[ax_idx].imshow(rate_map, cmap='jet', origin='lower', vmin = 0)
-                axes[ax_idx].set_title(f"Trial {session_key}.\nMax FR: {max_rates_dict[session_key][cluster_id]:.2f} Hz. Mean FR: {mean_rates_dict[session_key][cluster_id]:.2f} Hz\n Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f}. P = {spatial_significance_dict[session_key][cluster_id]}")
+                
+                # Build the title dynamically
+                title_parts = [f"Trial {session_key}"]
+                if session_key in max_rates_dict and cluster_id in max_rates_dict[session_key]:
+                    title_parts.append(f"Max FR: {max_rates_dict[session_key][cluster_id]:.2f} Hz")
+                if session_key in mean_rates_dict and cluster_id in mean_rates_dict[session_key]:
+                    title_parts.append(f"Mean FR: {mean_rates_dict[session_key][cluster_id]:.2f} Hz")
+                if session_key in spatial_info_dict and cluster_id in spatial_info_dict[session_key]:
+                    title_parts.append(f"Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f}")
+                if session_key in spatial_significance_dict and cluster_id in spatial_significance_dict[session_key]:
+                    title_parts.append(f"P = {spatial_significance_dict[session_key][cluster_id]}")
+                
+                title = ". ".join(title_parts)
+                axes[ax_idx].set_title(title)
                 axes[ax_idx].invert_yaxis() # Needed to match rate maps to theta phase plots
                 axes[ax_idx].axis('off')
-                # plt.colorbar(im, ax=axes[ax_idx])
             except KeyError:
-                # print(f"Cluster {cluster_id} is missing trial {ax_idx}.")
                 pass
             ax_idx += 1
 
