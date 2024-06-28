@@ -1,6 +1,7 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import spikeinterface as si
 import spikeinterface.extractors as se
 
 from .ephys_utils import gs_to_df
@@ -9,6 +10,8 @@ from .axona_utils.load_pos_axona import load_pos_axona
 from .np2_utils.load_pos_dlc import load_pos_dlc
 from .np2_utils.load_pos_bonsai import load_pos_bonsai
 from .np2_utils.postprocess_dlc_data import postprocess_dlc_data
+
+si.set_global_job_kwargs(n_jobs=-1)
 
 
 class ephys:
@@ -38,7 +41,7 @@ class ephys:
         obj.load_spikes()
 
     Attributes:
-        recording_type (str): Type of the recording. Current options: 'nexus'
+        recording_type (str): Type of the recording. Current options: 'nexus', 'np2_openephys
 
         base_path (str): Base path to the recording data. Hard-coded for now
         recording_path (str): Path to the specific animal and date recording folder
@@ -94,32 +97,31 @@ class ephys:
             print("Google Sheet not found, please specify a valid URL")
             raise e
 
+        # Load some metadata from the Google Sheet
         self.age = int(
-            df["Age"].loc[df["Session"] == f"{self.animal}_{self.date_short}"].iloc[0]
+            df.loc[df["Session"] == f"{self.animal}_{self.date_short}", "Age"].iloc[0]
         )
-        self.probe_type = (
-            df["probe_type"]
-            .loc[df["Session"] == f"{self.animal}_{self.date_short}"]
-            .iloc[0]
-        )
-        self.probe_channels = (
-            df["num_channels"]
-            .loc[df["Session"] == f"{self.animal}_{self.date_short}"]
-            .iloc[0]
-        )
+        self.probe_type = df.loc[
+            df["Session"] == f"{self.animal}_{self.date_short}", "probe_type"
+        ].iloc[0]
+        self.probe_channels = df.loc[
+            df["Session"] == f"{self.animal}_{self.date_short}", "num_channels"
+        ].iloc[0]
         self.area = (
-            df["Areas"].loc[df["Session"] == f"{self.animal}_{self.date_short}"].iloc[0]
+            df.loc[df["Session"] == f"{self.animal}_{self.date_short}", "Areas"].iloc[0]
             if "Areas" in df.columns
             else None
         )
 
+        # Set sorting path based on recording type
         if self.recording_type == "nexus":
             self.sorting_path = (
                 self.recording_path / f"{self.date_short}_sorting_ks2_custom"
             )
         elif self.recording_type == "NP2_openephys":
             self.sorting_path = (
-                self.recording_path / f"{self.date_short}_{self.area}_sorting_ks4"
+                self.recording_path
+                / f"{self.date_short}_{self.area}_sorting_ks4/sorter_output"
             )
         else:
             raise ValueError(
@@ -127,23 +129,67 @@ class ephys:
             )
 
         # Load session information from session.csv which is within the sorting folder as dataframe
-        self.session = pd.read_csv(self.sorting_path / "session.csv", index_col=0)
+        self.session = pd.read_csv(
+            self.sorting_path.parent / "session.csv", index_col=0
+        )
 
         # Collect each trial name
         self.trial_list = self.session.iloc[:, 1].to_list()
         # Collect each trial number
         self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
 
+        self.analyzer = None
+
         # Initialise data variables
         self.metadata = [None] * len(self.trial_list)
         self.lfp_data = [None] * len(self.trial_list)
         self.pos_data = [None] * len(self.trial_list)
         self.sync_data = [None] * len(self.trial_list)
-        self.spike_data = [None]
+        self.spike_data = {}
 
         # Set constants for position processing
         self.max_speed = 5
         self.smoothing_window_size = 3
+
+    def _load_ephys(self, keep_good_only=False):
+        """
+        Make a list of SortingAnalyzers, one for each trial, for extracting spikes and LFP
+        """
+        import probeinterface as pi
+
+        recording_list = []
+        # Create list of recording objects
+        for trial_iterator in self.trial_iterators:
+
+            if self.recording_type == "nexus":
+                path = self.recording_path / f"{self.trial_list[trial_iterator]}.set"
+                recording = se.read_axona(path)
+                if self.probe_type == "5x12_buz":
+                    probe = pi.read_prb(
+                        "spelt/axona_utils/probes/5x12-16_buz.prb"
+                    ).probes[0]
+                else:
+                    print("Axona probe type not implemented in _load_ephys")
+                recording = recording.set_probe(probe)
+
+            elif self.recording_type == "NP2_openephys":
+                path = self.recording_path / self.trial_list[trial_iterator] / self.area
+                recording = se.read_openephys(path, stream_id="0")
+            recording_list.append(recording)
+
+        # Load sorting
+        sorting = se.read_kilosort(
+            f"{self.sorting_path}", keep_good_only=keep_good_only
+        )
+
+        multi_segment_sorting = si.split_sorting(sorting, recording_list)
+
+        multi_segment_recording = si.append_recordings(recording_list)
+
+        # Make a single multisegment SortingAnalyzer for the whole session
+        self.analyzer = si.create_sorting_analyzer(
+            multi_segment_sorting, multi_segment_recording, sparse=False
+        )
 
     def load_metadata(self, trial_list, output_flag=True):
         """
@@ -264,6 +310,17 @@ class ephys:
                         self.load_ttl(trial_iterator, output_flag=False)
                     ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"]
 
+                    # Check that all TTL times are within the recording, warn if not
+                    ttl_times = ttl_times[
+                        ttl_times < self.session.iloc[trial_iterator, 5]
+                    ]
+                    if len(ttl_times) < len(
+                        self.sync_data[trial_iterator]["ttl_timestamps"]
+                    ):
+                        print(
+                            f"WARNING: Some TTL times are outside the recording for trial {trial_iterator}"
+                        )
+
                     # Estimate the frame rate from the TTL data
                     pos_sampling_rate = 1 / np.mean(np.diff(ttl_times[1:]))
 
@@ -301,7 +358,8 @@ class ephys:
                     )
 
                     # Set timestamps to TTL times - USES THE FIRST TTL TIME AS THE START TIME
-                    # NEEDS FIXING PROPERLY - THINK ABOUT HOW TO TIMESTAMP EACH FRAME ACCURATELY
+                    # TODO: NEEDS FIXING PROPERLY - THINK ABOUT HOW TO TIMESTAMP EACH FRAME ACCURATELY
+                    # Use Bonsai timestamps aligned to 0 as the first frame
                     n_frames = len(xy_pos.columns)
                     if len(ttl_times) < n_frames:
                         # Make up times at sample rate
@@ -405,18 +463,10 @@ class ephys:
                 print(f"LFP data already loaded for trial {trial_iterator}")
 
             else:
-                if self.recording_type == "nexus":
-                    path = (
-                        self.recording_path / f"{self.trial_list[trial_iterator]}.set"
-                    )
-                    recording = read_axona(path)
-                elif self.recording_type == "NP2_openephys":
-                    path = (
-                        self.recording_path
-                        / self.trial_list[trial_iterator]
-                        / self.area
-                    )
-                    recording = read_openephys(path, stream_id="0")
+                if self.analyzers is None:
+                    self._load_ephys()
+
+                recording = self.analyzers[trial_iterator].recording
 
                 # Resample
                 recording = spre.resample(recording, sampling_rate)
@@ -477,151 +527,80 @@ class ephys:
                     "channels": channels,
                 }
 
-    def load_spikes(self, clusters_to_load=None):
+    def load_spikes(
+        self,
+        clusters_to_load=None,
+        quality=None,
+        load_templates=False,
+        load_waveforms=False,
+    ):
         """
-        Loads spike data for the entire recording session from phy output. Can select based on phy label. Also loads channel index for each cluters
+        Loads the spike data for the session. Currently from Kilosort 2/4 output files using the spikeinterface package
 
         Args:
-            quality (str or array): phy cluster label (if str) OR cluster IDs (if array) to load. Most likely 'good', but 'mua' or 'noise' also possible. If None, loads all clusters
+            clusters_to_load (list of int, optional): A list of cluster IDs to load. Default is all
+            quality (list of str, optional): A list of quality labels to load. Default is all
 
         Populates:
-            self.spike_data (dict): A dictionary that stores spike times, spike clusters, and cluster quality for the recording session.
+            self.spike_data (dict): A dictionary that stores spike data for the session. The spike data is stored in the following keys:
+                - spike_times: A list of spike times in seconds
+                - spike_clusters: A list of cluster IDs for each spike
+                - spike_trial: A list of trial IDs for each spike
+                - sampling_rate: The sampling rate of the spike data
         """
         import spikeinterface.extractors as se
 
-        # Adjust sorting path for KS4-formatted sorting
-        if self.recording_type == "NP2_openephys":
-            sorting_path = self.sorting_path / "sorter_output"
-        else:
-            sorting_path = self.sorting_path
-
-        # Collect trial offsets for aligning spike data (measured in samples)
-        durations = self.session.iloc[:, 5].to_list()
-        self.trial_offsets = []
-        offset = 0
-        for duration in durations:
-            self.trial_offsets.append(offset)
-            offset += duration
-
-        # Load spike times, clusters, templates
-        spike_times = np.load(f"{sorting_path}/spike_times.npy")
-        spike_clusters = np.load(f"{sorting_path}/spike_clusters.npy")
-        spike_templates = np.load(f"{sorting_path}/spike_templates.npy")
-
-        # Load cluster info
-        cluster_info = pd.read_csv(
-            f"{sorting_path}/cluster_info.tsv", sep="\t", index_col=0
-        )
+        if self.analyzer is None:
+            self._load_ephys()
 
         if clusters_to_load is not None:
+            sorting = self.analyzer.sorting.select_units(clusters_to_load)
+        else:
+            sorting = self.analyzer.sorting
 
-            # Case if clusters to load is an empty array:
-            if len(clusters_to_load) == 0:
-                spike_times = np.nan
-                spike_clusters = np.nan
-                spike_templates = np.nan
+        if quality is not None:
+            unit_quality = self.analyzer.sorting.get_property("quality")
+            quality_mask = np.isin(unit_quality, quality)
+            units_to_keep = self.analyzer.sorting.get_unit_ids()[quality_mask]
+            sorting = sorting.select_units(units_to_keep)
 
-            else:
-                if np.isscalar(clusters_to_load):  # If string e.g. 'good'
-                    # Extract clusters matching quality to load
-                    cluster_info = cluster_info[
-                        cluster_info["group"] == clusters_to_load
-                    ]
+        spike_vector = sorting.to_spike_vector()
+        sampling_rate = self.analyzer.recording.get_sampling_frequency()
 
-                else:  # if array of cluster IDs
-                    # Extract only clusters matching the input array
-                    cluster_info = cluster_info[
-                        np.isin(cluster_info.index, clusters_to_load)
-                    ]
-
-                # Select spike times etc of the included clusters
-                mask = np.isin(spike_clusters, cluster_info.index)
-                spike_times = spike_times[mask]
-                spike_clusters = spike_clusters[mask]
-                spike_templates = spike_templates[mask]
-
-        ### Add a label for which behavioural trial each included spike is from
-        # Flatten into a 1D array
-        spike_times = spike_times.flatten()
-
-        # Determine the trial for each spike
-        spike_trial = np.digitize(spike_times.flatten(), self.trial_offsets) - 1
-
-        # Convert spike times into seconds
-        sort = se.read_phy(f"{sorting_path}").__dict__
-        sampling_rate = sort["_sampling_frequency"]
-        spike_times = spike_times / sampling_rate
-
-        # Create a list of trial offsets in seconds
-        self.trial_offsets_seconds = [
-            offset / sampling_rate for offset in self.trial_offsets
-        ]
+        self.analyzer.sorting = sorting
 
         # Populate spike_data
-        self.spike_data = {
-            "spike_times": spike_times,
-            "spike_clusters": spike_clusters,
-            "spike_templates": spike_templates,
-            "spike_trial": spike_trial,
-            "cluster_info": cluster_info,
-            "sampling_rate": sampling_rate,
-        }
+        self.spike_data["spike_times"] = spike_vector["sample_index"] / sampling_rate
+        self.spike_data["spike_clusters"] = spike_vector["unit_index"]
+        self.spike_data["spike_trial"] = spike_vector["segment_index"]
+        self.spike_data["sampling_rate"] = sampling_rate
 
-    def load_mean_waveforms(self, clusters_to_load=None, scale=True):
-        """
-        Load waveforms for specified clusters.
+        self.spike_data["templates"] = (
+            self._load_templates(clusters_to_load) if load_templates else None
+        )
+        self.spike_data["waveforms"] = (
+            self._load_waveforms(clusters_to_load) if load_waveforms else None
+        )
 
-        Args:
-            clusters_to_load (list or None): List of cluster IDs to load waveforms for. If None, waveforms will be loaded for all clusters.
-            n_spikes (int): Number of spikes to load for each cluster.
-            scale (bool): Flag indicating whether to scale the waveforms to microvolts.
+    def _load_templates(self, clusters_to_load=None):
 
-        Populates:
-            self.waveform_data (dict): A dictionary that stores mean waveforms for specified clusters.
-        """
-        from phylib.io.model import load_model
+        if not self.analyzer.has_extension("waveforms"):
+            self.analyzer.compute(["random_spikes", "waveforms"])
 
-        # Initialise waveform_data
-        self.mean_waveforms = {}
+        if not self.analyzer.has_extension("templates"):
+            self.analyzer.compute("templates")
 
-        # Get path to params.py
-        if self.recording_type == "nexus":
-            params_path = self.sorting_path / "params.py"
+        templates = self.analyzer.get_extension("templates").get_data()
+        if clusters_to_load is not None:
+            templates = templates[clusters_to_load]
+        return templates
 
-            # Load metadata for scaling traces (gains will load from the first trial)
-            self.load_metadata(0, output_flag=False)
-            set_header = self.metadata[0]
-            # Get ADC for recording
-            adc = int(set_header["ADC_fullscale_mv"])
+    def _load_waveforms(self, clusters_to_load=None):
 
-        elif self.recording_type == "NP2_openephys":
-            params_path = self.sorting_path / "sorter_output" / "params.py"
-        else:
-            raise ValueError(
-                'Recording type not recognised, please specify "nexus" or "NP2_openephys"'
-            )
+        if not self.analyzer.has_extension("waveforms"):
+            self.analyzer.compute(["random_spikes", "waveforms"])
 
-        # Load the TemplateModel.
-        model = load_model(params_path)
-
-        if clusters_to_load is None:
-            clusters_to_load = self.spike_data["cluster_info"].index
-            print("No clusters specified, loading mean waveforms for all clusters")
-
-        for cluster in clusters_to_load:
-
-            # Get the best mean waveform for the cluster from phy
-            best_mean_waveform = model.get_cluster_mean_waveforms(cluster)[
-                "mean_waveforms"
-            ][:, 0]
-            best_channel = model.get_cluster_mean_waveforms(cluster)["channel_ids"][0]
-
-            # Scale the waveforms to microvolts.
-            if scale is True:
-                # Get channel gains
-                gain = int(set_header[f"gain_ch_{best_channel}"])
-                # Scale traces to uv using logic as in ephys.load_lfp
-                best_mean_waveform = (best_mean_waveform / 32768 * adc * 1000) / gain
-
-            # Populate waveform_data
-            self.mean_waveforms[cluster] = best_mean_waveform
+        waveforms = self.analyzer.get_extension("waveforms").get_data()
+        if clusters_to_load is not None:
+            waveforms = waveforms[clusters_to_load]
+        return waveforms
