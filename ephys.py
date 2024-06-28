@@ -1,18 +1,11 @@
 from pathlib import Path
-import pandas as pd
 import numpy as np
 import spikeinterface as si
 import spikeinterface.extractors as se
 
 from .ephys_utils import gs_to_df
-from .axona_utils.postprocess_pos_data import postprocess_pos_data
-from .axona_utils.load_pos_axona import load_pos_axona
-from .np2_utils.load_pos_dlc import load_pos_dlc
-from .np2_utils.load_pos_bonsai import load_pos_bonsai
-from .np2_utils.postprocess_dlc_data import postprocess_dlc_data
 
 si.set_global_job_kwargs(n_jobs=-1)
-
 
 class ephys:
     """
@@ -334,6 +327,14 @@ class ephys:
         Populates:
             self.pos_data (list): A list that stores position data for each trial. The position data for the specified trial is added at the given index.
         """
+
+        from .axona_utils.load_pos_axona import load_pos_axona
+        from .np2_utils.load_pos_dlc import load_pos_dlc
+        from .np2_utils.load_pos_bonsai import load_pos_bonsai
+        from .axona_utils.postprocess_pos_data import postprocess_pos_data
+        from .np2_utils.postprocess_dlc_data import postprocess_dlc_data
+
+
         # Deal with int trial_list
         if isinstance(trial_list, int):
             trial_list = [trial_list]
