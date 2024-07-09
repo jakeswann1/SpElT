@@ -91,7 +91,7 @@ import probeinterface.probe
 import spikeinterface as si
 import spikeinterface.preprocessing as spre
 
-def preprocess_axona(recording, recording_name, base_folder, electrode_type, num_channels, force_rerun = False):
+def preprocess_axona(recording, recording_name, base_folder, electrode_type, force_rerun = False):
     '''
     Adds a Probe object to a Spikeinterface recording object
     Cuts the recording to 'num_channels' channels
@@ -102,12 +102,15 @@ def preprocess_axona(recording, recording_name, base_folder, electrode_type, num
     probe_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'probes')
 
     if 'tetrode' in electrode_type:
+        num_channels = 32
         probe = generate_tetrodes(int(num_channels/4))
     #Load probes
     elif electrode_type == 'probe' or electrode_type == '32 ch four shanks':
         probe = read_prb(os.path.join(probe_folder, '4x8_buzsaki_oneshank.prb'))
+        num_channels = 32
     elif electrode_type == '5x12_buz':
         probe = read_prb(os.path.join(probe_folder, '5x12-16_buz.prb'))
+        num_channels = 64
 
     else:
         raise ValueError('Electrode type is set wrong, please set to either "probe" or "tetrode"')

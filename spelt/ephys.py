@@ -71,7 +71,7 @@ class ephys:
         numpy, pandas
     """
 
-    def __init__(self, path, sheet_url):
+    def __init__(self, path, sheet_url, area = None):
         """
         Initialize the ephys object.
 
@@ -97,6 +97,8 @@ class ephys:
         # Get session info from Google Sheet
         try:
             df = gs_to_df(sheet_url)
+            df = df[df["Include"] == 'Y']
+            df = df[df["Areas"] == area] if area else df
             session = df.loc[df["Session"] == f"{self.animal}_{self.date_short}"]
             if session.empty:
                 raise ValueError(f"Session {self.animal}_{self.date_short} not found in Google Sheet")
@@ -535,7 +537,7 @@ class ephys:
 
         # Make a single multisegment SortingAnalyzer for the whole session
         self.analyzer = si.create_sorting_analyzer(
-            multi_segment_sorting, multi_segment_recording, sparse=False
+            multi_segment_sorting, multi_segment_recording, sparse=True
         )
 
     def _load_templates(self, clusters_to_load=None):

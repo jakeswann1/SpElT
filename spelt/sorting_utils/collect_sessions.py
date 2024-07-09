@@ -19,7 +19,7 @@ def load_and_process_recording(trial_info, trial, probe_to_sort, base_folder, ar
         if not os.path.isfile(f'{base_folder}/{trial}.pos'):
             pos_from_bin(f'{base_folder}/{trial}')
         return preprocess_axona(recording=recording, recording_name=trial, base_folder=base_folder,
-                                electrode_type=trial_info['probe_type'], num_channels=trial_info['num_channels'])
+                                electrode_type=trial_info['probe_type'])
     else:
         raise ValueError('Probe type not recognized, currently only "NP2_openephys" and "5x12_buz" are supported.')
 
@@ -28,7 +28,6 @@ def collect_trial_info(sheet, trial):
     trial_data = sheet[sheet['trial_name'] == trial].iloc[0]
     trial_info = {
         'path': trial_data['path'],
-        'num_channels': int(trial_data['num_channels']),
         'probe_type': trial_data['probe_type']
     }
     # Check for 'Areas' column and include it if present
