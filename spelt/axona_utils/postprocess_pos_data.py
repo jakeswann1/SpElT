@@ -102,41 +102,41 @@ def led_speed_filter(led_pos, max_pix_per_sample):
     Parameters:
     led_pos: pandas DataFrame of shape (4, n_pos) containing the x, y position of each LED, in the order [X1, Y1, X2, Y2]
     max_pix_per_sample: maximum allowed speed of the LED in pixels per sample
-    led: index of the LED to filter (1 for LED 1, 2 for LED 2)
 
     Returns:
     n_jumpy: number of positions that were filtered out
     led_pos: filtered led_pos DataFrame
     """
-    # For each LED (should be 2)
-    for i in range(0,np.shape(led_pos)[0],2):
+    n_jumpy = 0
+    mpps_sqd = max_pix_per_sample ** 2
 
-        # Get indices of positions where the LED was tracked
-        ok_pos = np.where(~led_pos.iloc[i, :].isna() | ~led_pos.iloc[i+1, :].isna())[0]
+    # Loop over the two sets of coordinates (X1, Y1) and (X2, Y2)
+    for i in range(0, led_pos.shape[0], 2):
+        # Create a mask for valid (non-NaN) positions
+        valid_mask = ~(led_pos.iloc[i, :].isna() | led_pos.iloc[i+1, :].isna())
+        valid_indices = np.where(valid_mask)[0]
 
-        if len(ok_pos) < 2:
+        if len(valid_indices) < 2:
             print(f"Warning: < 2 tracked points for LED {i // 2 + 1}")
+            continue
 
-        mpps_sqd = max_pix_per_sample**2
+        # Calculate differences between successive valid positions
+        diff_indices = np.diff(valid_indices)
+        diff_x = np.diff(led_pos.iloc[i, valid_indices].values)
+        diff_y = np.diff(led_pos.iloc[i+1, valid_indices].values)
 
-        n_jumpy = 0
-        prev_pos = ok_pos[0]
+        # Compute squared speed in pixels per sample
+        pix_per_sample_sqd = (diff_x**2 + diff_y**2) / (diff_indices**2)
 
-        for pos in ok_pos[1:]:
-            # Calculate speed of shift from prev_pos in pixels per sample (squared)
+        # Find positions that exceed the speed threshold
+        jumpy_positions_mask = pix_per_sample_sqd > mpps_sqd
+        jumpy_positions = valid_indices[1:][jumpy_positions_mask]
 
-            #Calculation:
-            #Euclidean distance (in pixels) between current and previous position per LED squared (so positive),
-            #divided by the number of samples between this position and the previous valid position all squared
+        # Update the number of jumpy positions
+        n_jumpy += len(jumpy_positions)
 
-            pix_per_sample_sqd = (led_pos.iloc[i, pos] - led_pos.iloc[i, prev_pos])**2 + (led_pos.iloc[i+1, pos] - led_pos.iloc[i+1, prev_pos])**2 / (pos-prev_pos)**2
-
-            #Compare with threshold and add 1 to n_jumpy counter if too fast, or set as new valid prev_pos
-            if pix_per_sample_sqd > mpps_sqd:
-                led_pos.iloc[i:i+2, pos] = np.nan
-                n_jumpy += 1
-            else:
-                prev_pos = pos
+        # Set jumpy positions to NaN
+        led_pos.iloc[i:i+2, jumpy_positions] = np.nan
 
     return n_jumpy, led_pos
 

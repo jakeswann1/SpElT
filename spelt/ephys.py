@@ -7,6 +7,7 @@ from .utils import gs_to_df
 
 si.set_global_job_kwargs(n_jobs=-1)
 
+
 class ephys:
     """
     A class to manage ephys data, including metadata, position, LFP, and spike data recorded from (currently):
@@ -37,7 +38,8 @@ class ephys:
         recording_type (str): Type of the recording. Current options: 'nexus', 'np2_openephys'
 
         path (str): Path to the specific animal and date recording folder
-        sheet_url (str): URL of the Google Sheet containing additional metadata (optional)
+        sheet_url (str): URL of the Google Sheet containing additional metadata
+        area (str): Brain area targeted for recording (optional)
 
         recording_path (str): Path to the recording data folder
         sorting_path (str): Path to the sorting data folder
@@ -71,23 +73,17 @@ class ephys:
         numpy, pandas
     """
 
-    def __init__(self, path, sheet_url, area = None):
+    def __init__(self, path, sheet_url, area=None):
         """
         Initialize the ephys object.
 
         Parameters:
         path (str): The path to the recording.
         sheet_url (str): URL of the Google Sheet containing additional metadata.
-
-        Raises:
-        ValueError: If no path is specified.
-
+        area (str, optional): The brain area targeted for recording. Default is None.
         """
 
-        if path:
-            self.recording_path = Path(path)
-        else:
-            raise ValueError("No path specified")
+        self.recording_path = Path(path)
 
         # Get date and animal ID from path
         self.date = self.recording_path.parts[-1]
@@ -97,13 +93,17 @@ class ephys:
         # Get session info from Google Sheet
         try:
             df = gs_to_df(sheet_url)
-            df = df[df["Include"] == 'Y']
+            df = df[df["Include"] == "Y"]
             df = df[df["Areas"] == area] if area else df
             session = df.loc[df["Session"] == f"{self.animal}_{self.date_short}"]
             if session.empty:
-                raise ValueError(f"Session {self.animal}_{self.date_short} not found in Google Sheet")
+                raise ValueError(
+                    f"Session {self.animal}_{self.date_short} not found in Google Sheet"
+                )
             if "Format" in session.columns:
-                session = session[session["Format"] == "raw"] #Drops thresholded Axona recordings
+                session = session[
+                    session["Format"] != "thresholded"
+                ]  # Drops thresholded Axona recordings
             self.session = session
         except Exception as e:
             print("Google Sheet not found, please specify a valid URL")
@@ -111,9 +111,17 @@ class ephys:
 
         # Load some metadata from the Google Sheet
         self.trial_list = session.loc[:, "trial_name"].to_list()
-        self.age = int(session.loc[:, "Age"].iloc[0]) if "Age" in session.columns else None
-        self.probe_type = session.loc[:, "probe_type"].iloc[0] if "probe_type" in session.columns else None
-        self.area = session.loc[:, "Areas"].iloc[0] if "Areas" in session.columns else None
+        self.age = (
+            int(session.loc[:, "Age"].iloc[0]) if "Age" in session.columns else None
+        )
+        self.probe_type = (
+            session.loc[:, "probe_type"].iloc[0]
+            if "probe_type" in session.columns
+            else None
+        )
+        self.area = (
+            session.loc[:, "Areas"].iloc[0] if "Areas" in session.columns else None
+        )
         self.recording_type = session.loc[:, "recording_type"].iloc[0]
 
         # Set sorting path based on recording type
@@ -202,6 +210,7 @@ class ephys:
     def load_single_unit_spike_trains(self, unit_ids=None):
         """
         Returns the spike trains from all trials for "good" units
+        Format is {trial: {unit: spike_train}}
         """
         self._load_ephys(keep_good_only=True)
 
@@ -213,7 +222,11 @@ class ephys:
         for trial in self.trial_iterators:
             unit_spikes[trial] = {}
             for unit in unit_ids:
-                unit_spikes[trial][unit] = self.analyzer.sorting.get_unit_spike_train(unit, segment_index = trial, return_times=True)
+                unit_spikes[trial][unit] = self.analyzer.sorting.get_unit_spike_train(
+                    unit, segment_index=trial, return_times=True
+                )
+
+        self.unit_spikes = unit_spikes
 
         return unit_spikes
 
@@ -323,24 +336,28 @@ class ephys:
                 else None
             )
 
+        if self.analyzer is None:
+            self._load_ephys()
+
         for trial_iterator in trial_iterators:
             # Get path of trial to load
             path = self.recording_path / self.trial_list[trial_iterator]
             if output_flag:
                 print(f"Loading TTL data for {self.trial_list[trial_iterator]}")
 
-            self.sync_data[trial_iterator] = {
-                "ttl_timestamps": se.read_openephys_event(path).get_event_times(
-                    channel_id="Neuropixels PXI Sync"
-                ),
-                "recording_timestamps": self.analyzer.recording.get_times(segment_index=trial_iterator),
-            }
-            if self.sync_data[trial_iterator]["ttl_timestamps"] is None:
-                print(f"No TTL data found for trial {trial_iterator}")
+            try:
+                self.sync_data[trial_iterator] = {
+                    "ttl_timestamps": se.read_openephys_event(path).get_event_times(
+                        channel_id="Neuropixels PXI Sync"
+                    )
+                }
+            except ValueError:
+                self.sync_data[trial_iterator] = {"ttl_timestamps": None}
+                Warning(f"No TTL data found for trial {trial_iterator}")
 
     def load_pos(self, trial_list=None, output_flag=True, reload_flag=False):
         """
-        Loads  and postprocesses the position data for a specified trial. Currently only from Dacq .pos files
+        Loads  and postprocesses the position data for a specified trial. Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
 
         Args:
             trial_list (int or array): The index of the trial for which position data is to be loaded.
@@ -351,13 +368,6 @@ class ephys:
         Populates:
             self.pos_data (list): A list that stores position data for each trial. The position data for the specified trial is added at the given index.
         """
-
-        from .axona_utils.load_pos_axona import load_pos_axona
-        from .np2_utils.load_pos_dlc import load_pos_dlc
-        from .np2_utils.load_pos_bonsai import load_pos_bonsai
-        from .axona_utils.postprocess_pos_data import postprocess_pos_data
-        from .np2_utils.postprocess_dlc_data import postprocess_dlc_data
-
 
         # Deal with int trial_list
         if isinstance(trial_list, int):
@@ -371,136 +381,136 @@ class ephys:
             # Check if position data is already loaded for session:
             if reload_flag == False and self.pos_data[trial_iterator] != None:
                 print(f"Position data already loaded for trial {trial_iterator}")
-            else:
+                continue
 
-                # Get path of trial to load
-                path = self.recording_path / self.trial_list[trial_iterator]
-                if output_flag:
-                    print(
-                        f"Loading position data for {self.trial_list[trial_iterator]}"
+            # Get path of trial to load
+            path = self.recording_path / self.trial_list[trial_iterator]
+            if output_flag:
+                print(f"Loading position data for {self.trial_list[trial_iterator]}")
+
+            if self.recording_type == "nexus":
+                from .axona_utils.load_pos_axona import load_pos_axona
+                from .axona_utils.postprocess_pos_data import postprocess_pos_data
+
+                # TODO: NEEDS FIXING PROPERLY!!!! If t-maze trial, rescale PPM because it isn't set right in pos file
+                if "t-maze" in self.trial_list[trial_iterator]:
+                    override_ppm = 615
+                    if output_flag:
+                        print(f"Real PPM artifically set to 615 (t-maze default)")
+                else:
+                    override_ppm = None
+
+                # Load Axona pos data from csv file and preprocess
+                raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
+
+                # Postprocess posdata
+                (
+                    xy_pos,
+                    led_pos,
+                    led_pix,
+                    speed,
+                    direction,
+                    direction_disp,
+                ) = postprocess_pos_data(
+                    raw_pos_data, self.max_speed, self.smoothing_window_size
+                )
+
+                # Rescale timestamps to seconds
+                xy_pos.columns /= pos_sampling_rate
+                led_pos.columns /= pos_sampling_rate
+                led_pix.columns /= pos_sampling_rate
+
+            elif self.recording_type == "NP2_openephys":
+                from .np2_utils.load_pos_dlc import load_pos_dlc
+                from .np2_utils.load_pos_bonsai import (
+                    load_pos_bonsai_laurenz,
+                    load_pos_bonsai_jake,
+                )
+                from .np2_utils.postprocess_pos_data_np2 import (
+                    postprocess_dlc_data,
+                    postprocess_bonsai_jake,
+                )
+
+                # Load TTL sync data
+                if self.sync_data[trial_iterator] == None:
+                    self.load_ttl(trial_iterator, output_flag=False)
+                # Get TTL times and drop the first pulse
+                try:
+                    ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"][1:]
+                    ttl_freq = 1 / np.mean(np.diff(ttl_times[1:]))
+                except TypeError:
+                    ttl_times = None
+                    ttl_freq = None
+                    Warning(f"No TTL data found for trial {trial_iterator}")
+
+                # Jake Bonsai Format
+                if path.with_suffix(".csv").exists() == True:
+                    if output_flag:
+                        print("Loading raw Bonsai position data")
+                    raw_pos_data = load_pos_bonsai_jake(path.with_suffix(".csv"), 400)
+                    # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
+
+                    xy_pos, speed, direction_disp = postprocess_bonsai_jake(
+                        raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
 
-                if self.recording_type == "nexus":
+                elif (path / "dlc.csv").exists() == True:
+                    if output_flag:
+                        print("Loading DLC position data")
+                    # Load DeepLabCut position data from csv file
+                    raw_pos_data = load_pos_dlc(
+                        path, 400
+                    )  # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
 
-                    # TODO: NEEDS FIXING PROPERLY!!!! If t-maze trial, rescale PPM because it isn't set right in pos file
-                    if "t-maze" in self.trial_list[trial_iterator]:
-                        override_ppm = 615
-                        if output_flag:
-                            print(f"Real PPM artifically set to 615 (t-maze default)")
-                    else:
-                        override_ppm = None
-
-                    # Load Axona pos data from csv file and preprocess
-                    raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
+                    # Add angle of tracked head point to header (probably 0)
+                    # TODO: make dynamic
+                    raw_pos_data["header"]["tracked_point_angle_1"] = 0
 
                     # Postprocess posdata
-                    xy_pos, led_pos, led_pix, speed, direction, direction_disp = (
-                        postprocess_pos_data(
-                            raw_pos_data, self.max_speed, self.smoothing_window_size
-                        )
+                    (
+                        xy_pos,
+                        tracked_points,
+                        speed,
+                        direction,
+                        direction_disp,
+                    ) = postprocess_dlc_data(
+                        raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
 
-                    # Rescale timestamps to seconds
-                    xy_pos.columns /= pos_sampling_rate
-                    led_pos.columns /= pos_sampling_rate
-                    led_pix.columns /= pos_sampling_rate
+                # # Laurenz format
+                # elif (path / "bonsai.csv").exists() == True:
+                #     if output_flag:
+                #         print("Loading raw Bonsai position data")
+                #     raw_pos_data = load_pos_bonsai_laurenz(
+                #         path, 400
+                #     )  # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
+                #     # TODO: make dynamic
+                #     raw_pos_data["header"]["bearing_colour_1"] = 90
 
-                    # Populate processed pos data
-                    self.pos_data[trial_iterator] = {
-                        "header": raw_pos_data["header"],
-                        "xy_position": xy_pos,
-                        "led_positions": led_pos,
-                        "led_pixel_size": led_pix,
-                        "speed": speed,  # in cm/s
-                        "direction": direction,
-                        "direction_from_displacement": direction_disp,
-                        "pos_sampling_rate": pos_sampling_rate,
-                    }
+                #     # TODO: add postprocessing for Laurenz format
 
-                elif self.recording_type == "NP2_openephys":
+                else:
+                    print(f"No position data found for trial {trial_iterator}")
+                    raw_pos_data = None
 
-                    # Load TTL sync data
-                    if self.sync_data[trial_iterator] == None:
-                        self.load_ttl(trial_iterator, output_flag=False)
-                    ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"]
-
-                    # Check that all TTL times are within the recording, warn if not
-                    ttl_times = ttl_times[
-                        ttl_times < self.session.iloc[trial_iterator, 5]
-                    ]
-                    if len(ttl_times) < len(
-                        self.sync_data[trial_iterator]["ttl_timestamps"]
-                    ):
-                        print(
-                            f"WARNING: Some TTL times are outside the recording for trial {trial_iterator}"
-                        )
-
-                    # Estimate the frame rate from the TTL data
-                    pos_sampling_rate = 1 / np.mean(np.diff(ttl_times[1:]))
-
-                    if (path / "dlc.csv").exists() == True:
-                        if output_flag:
-                            print("Loading DLC position data")
-                        # Load DeepLabCut position data from csv file
-                        raw_pos_data = load_pos_dlc(
-                            path, 400
-                        )  # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
-
-                        # Add angle of tracked head point to header (probably 0)
-                        # TODO: make dynamic
-                        raw_pos_data["header"]["tracked_point_angle_1"] = 0
-
-                    elif (path / "bonsai.csv").exists() == True:
-                        if output_flag:
-                            print("Loading raw Bonsai position data")
-                        raw_pos_data = load_pos_bonsai(
-                            path, 400
-                        )  # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
-                        # TODO: make dynamic
-                        raw_pos_data["header"]["bearing_colour_1"] = 90
-
-                    else:
-                        print(f"No position data found for trial {trial_iterator}")
-                        raw_pos_data = None
-                    raw_pos_data["header"]["sample_rate"] = pos_sampling_rate
-
-                    raw_pos_data["header"]["sample_rate"] = pos_sampling_rate
-
-                    # Postprocess posdata
-                    xy_pos, tracked_points, speed, direction, direction_disp = (
-                        postprocess_dlc_data(
-                            raw_pos_data, self.max_speed, self.smoothing_window_size
-                        )
-                    )
-
-                    # Set timestamps to TTL times - USES THE FIRST TTL TIME AS THE START TIME
-                    # TODO: NEEDS FIXING PROPERLY - THINK ABOUT HOW TO TIMESTAMP EACH FRAME ACCURATELY
-                    # Use Bonsai timestamps aligned to 0 as the first frame, then extract timestamps from camera metadata
-                    n_frames = len(xy_pos.columns)
-                    if len(ttl_times) < n_frames:
-                        # Make up times at sample rate
-                        for i in range(n_frames - len(ttl_times) + 1):
-                            ttl_times = np.append(
-                                ttl_times, ttl_times[-1] + (i + 1 / pos_sampling_rate)
-                            )
-
-                    xy_pos.columns = ttl_times[1 : n_frames + 1]
-                    tracked_points.columns = ttl_times[1 : n_frames + 1]
-
-                    # Populate processed pos data
-                    self.pos_data[trial_iterator] = {
-                        "header": raw_pos_data["header"],
-                        "xy_position": xy_pos,
-                        "tracked_points": tracked_points,
-                        "speed": speed,  # in cm/s
-                        "direction": direction,
-                        "direction_from_displacement": direction_disp,
-                        "pos_sampling_rate": pos_sampling_rate,
-                    }
+            # Populate processed pos data
+            self.pos_data[trial_iterator] = {
+                "header": raw_pos_data["header"] if "header" in raw_pos_data.keys() else None,
+                "xy_position": xy_pos,
+                "led_positions": led_pos if "led_pos" in locals() else None,
+                "led_pixel_size": led_pix if "led_pos" in locals() else None,
+                "ttl_times": ttl_times if "ttl_times" in locals() else None,  # Drop first TTL pulse
+                "ttl_freq": ttl_freq if "ttl_freq" in locals() else None,
+                "tracked_points": tracked_points if "tracked_points" in locals() else None,
+                "speed": speed,  # in cm/s
+                "direction": direction if "direction" in locals() else None,
+                "direction_from_displacement": direction_disp,
+                "pos_sampling_rate": pos_sampling_rate if "pos_sampling_rate" in locals() else None,
+            }
 
     def _load_ephys(self, keep_good_only=False):
         """
-        Make a list of SortingAnalyzers, one for each trial, for extracting spikes and LFP
+        Make a SortingAnalyzer for extracting spikes and LFP
         """
         import probeinterface as pi
 
@@ -510,7 +520,7 @@ class ephys:
 
             if self.recording_type == "nexus":
                 path = self.recording_path / f"{self.trial_list[trial_iterator]}.set"
-                probe_path = Path(__file__).parent / "axona_utils"/ "probes"
+                probe_path = Path(__file__).parent / "axona_utils" / "probes"
                 recording = se.read_axona(path, all_annotations=True)
                 if self.probe_type == "5x12_buz":
                     probe = pi.read_prb(probe_path / "5x12-16_buz.prb").probes[0]

@@ -31,10 +31,17 @@ def assign_sectors(xy_positions, pos_header):
 
     # Calculate the minimum and maximum x, y coordinates to determine the field of view (FOV)
     # These coordinates are rounded to the nearest lower and upper bin edges, respectively
-    min_x = pos_header['min_x']
-    max_x = pos_header['max_x']
-    min_y = pos_header['min_y']
-    max_y = pos_header['max_y']
+    if pos_header is not None:
+        min_x = pos_header['min_x']
+        max_x = pos_header['max_x']
+        min_y = pos_header['min_y']
+        max_y = pos_header['max_y']
+    else:
+        min_x = np.floor(xy_positions_filtered.iloc[:, 0].min())
+        max_x = np.ceil(xy_positions_filtered.iloc[:, 0].max())
+        min_y = np.floor(xy_positions_filtered.iloc[:, 1].min())
+        max_y = np.ceil(xy_positions_filtered.iloc[:, 1].max())
+        print("Position header not provided. Using min/max values from xy_positions.")
 
     # Define grid dimensions
     num_cols = 4
@@ -44,33 +51,21 @@ def assign_sectors(xy_positions, pos_header):
     sector_width = (max_x - min_x) / num_cols
     sector_height = (max_y - min_y) / num_rows
 
-    # Initialize sector numbers array
-    num_positions = xy_positions.shape[0]
-    sector_numbers = np.zeros(num_positions)
+    # Handle NaN values explicitly by assigning them to a specific sector or keeping them as NaN
+    col_indices = np.floor((xy_positions.iloc[:, 0] - min_x) / sector_width).astype(float) + 1
+    row_indices = np.floor((xy_positions.iloc[:, 1] - min_y) / sector_height).astype(float) + 1
 
-    for i in range(num_positions):
-        # Extract x and y coordinates
-        x_pos = xy_positions.iloc[i, 0]
-        y_pos = xy_positions.iloc[i, 1]
+    # Replace NaNs in col_indices and row_indices with a valid index or leave them as NaN
+    col_indices = np.clip(col_indices, 1, num_cols)
+    row_indices = np.clip(row_indices, 1, num_rows)
 
-        # Assign NaN if either coordinate is NaN
-        if np.isnan(x_pos) or np.isnan(y_pos):
-            sector_numbers[i] = np.nan
-            continue
+    # Calculate sector numbers
+    sector_numbers = (row_indices - 1) * num_cols + col_indices
 
-        # Calculate column and row indices
-        col_index = int(np.floor((x_pos - min_x) / sector_width)) + 1
-        row_index = int(np.floor((y_pos - min_y) / sector_height)) + 1
+    # Convert to integers, handling NaNs by keeping them as NaNs
+    sector_numbers = sector_numbers.where(~sector_numbers.isna(), np.nan)
 
-        # Clamp indices within valid range
-        col_index = max(1, min(col_index, num_cols))
-        row_index = max(1, min(row_index, num_rows))
-
-        # Calculate and store sector number
-        sector_number = (row_index - 1) * num_cols + col_index
-        sector_numbers[i] = sector_number
-
-    return sector_numbers
+    return sector_numbers.values
 
 def calculate_choices(xy_positions, sector_numbers):
     """
