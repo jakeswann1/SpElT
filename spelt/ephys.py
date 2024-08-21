@@ -111,6 +111,7 @@ class ephys:
 
         # Load some metadata from the Google Sheet
         self.trial_list = session.loc[:, "trial_name"].to_list()
+
         self.age = (
             int(session.loc[:, "Age"].iloc[0]) if "Age" in session.columns else None
         )
@@ -385,8 +386,7 @@ class ephys:
 
             # Get path of trial to load
             path = self.recording_path / self.trial_list[trial_iterator]
-            if output_flag:
-                print(f"Loading position data for {self.trial_list[trial_iterator]}")
+            print(f"Loading position data for {self.trial_list[trial_iterator]}") if output_flag else None
 
             if self.recording_type == "nexus":
                 from .axona_utils.load_pos_axona import load_pos_axona
@@ -395,8 +395,7 @@ class ephys:
                 # TODO: NEEDS FIXING PROPERLY!!!! If t-maze trial, rescale PPM because it isn't set right in pos file
                 if "t-maze" in self.trial_list[trial_iterator]:
                     override_ppm = 615
-                    if output_flag:
-                        print(f"Real PPM artifically set to 615 (t-maze default)")
+                    print(f"Real PPM artifically set to 615 (t-maze default)") if output_flag else None
                 else:
                     override_ppm = None
 
@@ -436,8 +435,8 @@ class ephys:
                     self.load_ttl(trial_iterator, output_flag=False)
                 # Get TTL times and drop the first pulse
                 try:
-                    ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"][1:]
-                    ttl_freq = 1 / np.mean(np.diff(ttl_times[1:]))
+                    ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"][2:]
+                    ttl_freq = 1 / np.mean(np.diff(ttl_times))
                 except TypeError:
                     ttl_times = None
                     ttl_freq = None
@@ -445,18 +444,20 @@ class ephys:
 
                 # Jake Bonsai Format
                 if path.with_suffix(".csv").exists() == True:
-                    if output_flag:
-                        print("Loading raw Bonsai position data")
-                    raw_pos_data = load_pos_bonsai_jake(path.with_suffix(".csv"), 400)
+                    print("Loading raw Bonsai position data") if output_flag else None
+                    trial_type = self.session["Trial Type"].iloc[trial_iterator]
+                    raw_pos_data = load_pos_bonsai_jake(path.with_suffix(".csv"), 400, trial_type)
                     # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
+
 
                     xy_pos, speed, direction_disp = postprocess_bonsai_jake(
                         raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
 
+                    pos_sampling_rate = raw_pos_data["sampling_rate"]
+
                 elif (path / "dlc.csv").exists() == True:
-                    if output_flag:
-                        print("Loading DLC position data")
+                    print("Loading DLC position data") if output_flag else None
                     # Load DeepLabCut position data from csv file
                     raw_pos_data = load_pos_dlc(
                         path, 400
@@ -476,6 +477,9 @@ class ephys:
                     ) = postprocess_dlc_data(
                         raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
+
+                    bonsai_timestamps = raw_pos_data['bonsai_timestamps']
+                    camera_timestamps = raw_pos_data['camera_timestamps']
 
                 # # Laurenz format
                 # elif (path / "bonsai.csv").exists() == True:
@@ -499,13 +503,16 @@ class ephys:
                 "xy_position": xy_pos,
                 "led_positions": led_pos if "led_pos" in locals() else None,
                 "led_pixel_size": led_pix if "led_pos" in locals() else None,
-                "ttl_times": ttl_times if "ttl_times" in locals() else None,  # Drop first TTL pulse
+                "ttl_times": ttl_times if "ttl_times" in locals() else None,
                 "ttl_freq": ttl_freq if "ttl_freq" in locals() else None,
+                "bonsai_timestamps": bonsai_timestamps if "bonsai_timestamps" in locals() else None,
+                "camera_timestamps": camera_timestamps if "camera_timestamps" in locals() else None,
                 "tracked_points": tracked_points if "tracked_points" in locals() else None,
                 "speed": speed,  # in cm/s
                 "direction": direction if "direction" in locals() else None,
                 "direction_from_displacement": direction_disp,
                 "pos_sampling_rate": pos_sampling_rate if "pos_sampling_rate" in locals() else None,
+                "scaled_ppm": 400, #HARD CODED - TODO: FIX IF NECESSARY
             }
 
     def _load_ephys(self, keep_good_only=False):

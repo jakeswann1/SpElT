@@ -307,7 +307,7 @@ def bin_pos_data_dlc(pos_data, bin_length = 2.5, speed_threshold = 2.5):
 
     speed = pos_data['speed']
     pos_sampling_rate = pos_data['pos_sampling_rate']
-    scaled_ppm = pos_data['header']['scaled_ppm'] #pixels per meter
+    scaled_ppm = pos_data['scaled_ppm'] #pixels per meter
 
     # Get bin length in pixels
     bin_length = bin_length * scaled_ppm / 100 #convert to meters and then to pixels
@@ -360,7 +360,6 @@ def bin_pos_data_dlc(pos_data, bin_length = 2.5, speed_threshold = 2.5):
 
     return pos_bin_idx, pos_sample_times, pos_sampling_rate
 
-from ephys_analysis.spelt.utils import select_spikes_by_trial, transform_spike_data
 def make_rate_maps_from_obj(obj):
     rate_maps = {}
     pos_map = {}
@@ -371,8 +370,10 @@ def make_rate_maps_from_obj(obj):
     pos_sample_times = {}
     pos_sampling_rate = {}
 
-    if obj.spike_data == [None]:
-        obj.load_spikes()
+    if obj.unit_spikes is None:
+        spike_data = obj.load_single_unit_spike_trains()
+    else:
+        spike_data = obj.unit_spikes
 
     # Make rate maps for all trials in an ephys object
     for trial, _ in enumerate(obj.trial_iterators):
@@ -383,12 +384,7 @@ def make_rate_maps_from_obj(obj):
         except:
             continue
 
-        if ~hasattr(obj, 'trial_offsets_seconds'):
-            obj.trial_offsets_seconds = [offset / obj.spike_data['sampling_rate'] for offset in obj.trial_offsets]
-
-        # Select spikes for current trial and transform to create a dict of {cluster: spike_times}
-        current_trial_spikes = select_spikes_by_trial(obj.spike_data, trial, obj.trial_offsets_seconds)
-        current_trial_spikes = transform_spike_data(current_trial_spikes)[trial]
+        current_trial_spikes = spike_data[trial]
 
         # Filter spikes for speed
         current_trial_spikes_filtered = speed_filter_spikes(current_trial_spikes,
@@ -402,9 +398,9 @@ def make_rate_maps_from_obj(obj):
 
         # Calculate rate maps
         if obj.recording_type == 'nexus':
-            pos_bin_idx[trial], pos_sample_times[trial], pos_sampling_rate[trial] = bin_pos_data_axona(pos_data = obj.pos_data[trial], bin_length = 2.5, speed_threshold=2.5)
+            pos_bin_idx[trial], pos_sample_times[trial], pos_sampling_rate[trial] = bin_pos_data_axona(pos_data = obj.pos_data[trial], bin_length = 2.5, speed_threshold=0)
         elif obj.recording_type == 'NP2_openephys':
-            pos_bin_idx[trial], pos_sample_times[trial], pos_sampling_rate[trial] = bin_pos_data_dlc(pos_data = obj.pos_data[trial], bin_length = 2.5, speed_threshold=2.5)
+            pos_bin_idx[trial], pos_sample_times[trial], pos_sampling_rate[trial] = bin_pos_data_dlc(pos_data = obj.pos_data[trial], bin_length = 2.5, speed_threshold=0)
         else:
             raise ValueError('Recording type not recognised')
 

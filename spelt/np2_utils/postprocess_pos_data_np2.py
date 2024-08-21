@@ -74,6 +74,7 @@ def postprocess_bonsai_jake(posdata, max_speed, smoothing_window_size):
     raw_pos = interpolate_nan_values(raw_pos)
 
     smoothed_pos = boxcar_smooth(raw_pos, window_size=smoothing_window_size)
+    smoothed_pos.index = ['X', 'Y']
 
     # Calculate heading from displacement, can't calculate true direction as only a single point is tracked
     direction_disp = calculate_heading_direction(smoothed_pos)

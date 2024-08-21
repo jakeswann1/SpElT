@@ -22,7 +22,7 @@ def gs_to_df(url: str):
     df = pd.read_csv(csv_export_url, on_bad_lines = 'skip')
     return df
 
-def find_all_sessions(sheet_path, data_path):
+def find_all_sessions(sheet_path, data_path, raw_only=False, probe = None, animal = None):
     '''
     Function to find all sessions and session paths from Recording Master Spreadsheet
     '''
@@ -30,6 +30,12 @@ def find_all_sessions(sheet_path, data_path):
     sheet = gs_to_df(sheet_path)
 
     sheet_inc = sheet[sheet["Include"] == 'Y']
+    if raw_only:
+        sheet_inc = sheet_inc[sheet_inc['Format'] == 'raw']
+    if animal:
+        sheet_inc = sheet_inc[sheet_inc['Animal'] == animal]
+    if probe:
+        sheet_inc = sheet_inc[sheet_inc['probe_type'] == probe]
     session_list = np.unique(sheet_inc['Session'].to_list())
     session_dict = {}
 

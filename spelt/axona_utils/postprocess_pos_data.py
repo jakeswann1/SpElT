@@ -175,7 +175,8 @@ def boxcar_smooth(df, window_size):
     Returns:
     df_smoothed: DataFrame with smoothed values
     """
-    from scipy.signal import convolve, boxcar
+    from scipy.signal import convolve
+    from scipy.signal.windows import boxcar
 
     # Create a boxcar window
     window = boxcar(window_size)
