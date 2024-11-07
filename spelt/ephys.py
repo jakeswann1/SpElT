@@ -73,7 +73,7 @@ class ephys:
         numpy, pandas
     """
 
-    def __init__(self, path, sheet_url, area=None):
+    def __init__(self, path, sheet_url, area=None, pos_only=False):
         """
         Initialize the ephys object.
 
@@ -100,10 +100,10 @@ class ephys:
                 raise ValueError(
                     f"Session {self.animal}_{self.date_short} not found in Google Sheet"
                 )
-            if "Format" in session.columns:
+            if "Format" in session.columns and pos_only!=True:
                 session = session[
                     session["Format"] != "thresholded"
-                ]  # Drops thresholded Axona recordings
+                ]  # Drops thresholded Axona recordings unless pos_only=True
             self.session = session
         except Exception as e:
             print("Google Sheet not found, please specify a valid URL")
@@ -159,6 +159,7 @@ class ephys:
         quality=None,
         load_templates=False,
         load_waveforms=False,
+        load_channels=False
     ):
         """
         Loads the spike data for the session. Currently from Kilosort 2/4 output files using the spikeinterface package
@@ -189,6 +190,7 @@ class ephys:
             quality_mask = np.isin(unit_quality, quality)
             units_to_keep = self.analyzer.sorting.get_unit_ids()[quality_mask]
             sorting = sorting.select_units(units_to_keep)
+            unit_ids = units_to_keep
 
         spike_vector = sorting.to_spike_vector()
         sampling_rate = self.analyzer.recording.get_sampling_frequency()
@@ -206,6 +208,9 @@ class ephys:
         )
         self.spike_data["waveforms"] = (
             self._load_waveforms(unit_ids) if load_waveforms else None
+        )
+        self.spike_data["channels"] = (
+            self._load_extremum_channels(unit_ids) if load_channels else None
         )
 
     def load_single_unit_spike_trains(self, unit_ids=None):
@@ -400,7 +405,21 @@ class ephys:
                     override_ppm = None
 
                 # Load Axona pos data from csv file and preprocess
-                raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
+                try:
+                    raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
+                except FileNotFoundError:
+                    # If .csv file not found, try to load from .bin file
+                    try:
+                        from .axona_utils.axona_preprocessing import pos_from_bin
+                        print("No .csv file found, trying to load from .bin file") if output_flag else None
+                        pos_from_bin(path)
+                        raw_pos_data, pos_sampling_rate = load_pos_axona(path / self.trial_list[trial_iterator], override_ppm)
+                    except FileNotFoundError:
+                        # If .bin file not found, try to load from .pos file
+                        from .axona_utils.postprocess_pos_data import write_csv_from_pos
+                        print("No .csv or .bin file found, trying to load from .pos file") if output_flag else None
+                        write_csv_from_pos(path.with_suffix(".pos"))
+                        raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
 
                 # Postprocess posdata
                 (
@@ -579,3 +598,23 @@ class ephys:
         if clusters_to_load is not None:
             waveforms = waveforms[clusters_to_load]
         return waveforms
+
+    def _load_extremum_channels(self, clusters_to_load=None):
+
+        # try loading from sorting properties
+        try:
+            extremum_channels = self.analyzer.sorting.get_property("ch")
+            unit_ids = self.analyzer.sorting.get_unit_ids()
+            #make extremum channels a dict
+            extremum_channels = dict(zip(unit_ids, extremum_channels))
+        except KeyError:
+            if not self.analyzer.has_extension("waveforms"):
+                self.analyzer.compute(["random_spikes", "waveforms"])
+            if not self.analyzer.has_extension("templates"):
+                self.analyzer.compute("templates")
+
+            extremum_channels = si.get_template_extremum_channel(self.analyzer)
+        # if clusters_to_load is specified, only return those
+        if clusters_to_load is not None:
+            extremum_channels = {k: extremum_channels[k] for k in clusters_to_load}
+        return extremum_channels

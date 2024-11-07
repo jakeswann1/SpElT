@@ -5,6 +5,7 @@ from scipy.ndimage import uniform_filter
 from scipy.interpolate import interp1d
 
 def write_csv_from_pos(file_path):
+    file_path = str(file_path)
     framecounter = []
     x1s = []
     y1s = []
