@@ -63,8 +63,8 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
     for i, session in enumerate(session_list):
 
         base_session, area = parse_session_info(session)
-        for trial in trial_list:
-            if area_list is None or (area in area_list[i] and base_session in trial):
+        for j, trial in enumerate(trial_list):
+            if area_list is None or (area in area_list[j] and base_session in trial):
                 trial_info = collect_trial_info(sheet, trial)
                 base_folder = trial_info['path']
                 print(f"Loading {base_folder}/{trial}")
@@ -76,5 +76,8 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
                 if area_list is not None:
                     recording_data.append(area)
                 recording_list[i].append(recording_data)
+
+            else:
+                print(f"{area} not in {area_list[i]} or {base_session} not in {trial}")
 
     return recording_list
