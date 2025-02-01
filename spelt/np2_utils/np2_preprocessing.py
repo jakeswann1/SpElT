@@ -19,8 +19,14 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
         # Account for phase shift in NP2 acquisition
         recording = spre.phase_shift(recording)
         # Sort
-        sorting = ss.run_sorter('kilosort4', recording, output_folder=f'{sorting_path}',
-                                        verbose = True, docker_image = False, remove_existing_folder = True)
+        sorting = ss.run_sorter('kilosort4',
+                                recording,
+                                output_folder=f'{sorting_path}',
+                                verbose = True,
+                                docker_image = False,
+                                remove_existing_folder = True,
+                                save_preprocessed_copy = True,
+                                use_binary_file = True)
 
         print(f'Recording sorted!\n KS4 found {len(sorting.get_unit_ids())} units\n')
 
@@ -33,10 +39,10 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
         sorting.save(folder=sorting_path / 'sort')
         print(f'Sorting saved to {sorting_path}/sort\n')
 
-        #Edit params.py file to point to new .dat file in the first line
-        with open(f'{sorting_path}/sorter_output/params.py', 'r+') as file:
-            lines = file.readlines()
-            file.seek(0)
-            file.write(f'dat_path = "{base_folder}/concat_{area}.dat"\n')
-            file.writelines(lines[1:])
-            file.truncate()
+        # #Edit params.py file to point to new .dat file in the first line
+        # with open(f'{sorting_path}/sorter_output/params.py', 'r+') as file:
+        #     lines = file.readlines()
+        #     file.seek(0)
+        #     file.write(f'dat_path = "{base_folder}/concat_{area}.dat"\n')
+        #     file.writelines(lines[1:])
+        #     file.truncate()
