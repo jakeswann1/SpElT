@@ -78,6 +78,7 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
                 recording_list[i].append(recording_data)
 
             else:
-                print(f"{area} not in {area_list[i]} or {base_session} not in {trial}")
+                # print(f"{area} not in {area_list[i]} or {base_session} not in {trial}")
+                pass
 
     return recording_list
