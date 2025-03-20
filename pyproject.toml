@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spelt"
+version = "0.1.0"
+authors = [
+    {name = "Jake Swann", email = "jake.swann.22@ucl.ac.uk"},
+]
+description = "SpElT - a package for analysis of spatial electrophysiology data"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "spikeinterface",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "pynapple",
+]
+
+[project.urls]
+"Bug Reports" = "https://github.com/jakeswann1/SpElT/issues"
+"Source" = "https://github.com/jakeswann1/SpElT"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["spelt"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.rst"]
+"spelt.hello" = ["*.msg"]

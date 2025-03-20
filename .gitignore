@@ -1,13 +1,63 @@
-
-**/__pycache__/
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
 
-**/.ipynb_checkpoints/
-.ipynb_checkpoints/
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
 
-.conda/
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
 
+# Testing
 .pytest_cache/
+.coverage
+htmlcov/
+.tox/
 
-.vscode/settings.json
-.vscode
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+
+# Data files that shouldn't be versioned
+*.data
+*.csv
+*.xls
+*.xlsx
+*.db
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# build artifacts
+*.egg-info/
+*.egg
+*.whl
+*.tar.gz
+*.zip
+# Cython files
+*.so
+*.c
+*.cpp
+*.h
+# Cython build directory
+build/
+# Cython cache
+cython_debug/
