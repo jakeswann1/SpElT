@@ -1,20 +1,21 @@
-import numpy as np
-import pandas as pd
-from scipy.ndimage import uniform_filter
 import matplotlib.pyplot as plt
-from .adaptive_smooth import *
+import numpy as np
+
+from spelt.maps.adaptive_smooth import (
+    adaptive_smooth,
+)
 
 
 def make_rate_maps(
-    spike_data,
-    pos_sample_times,
-    pos_bin_idx,
-    pos_sampling_rate,
-    dt=1.0,
+    spike_data: dict,
+    pos_sample_times: np.ndarray,
+    pos_bin_idx: np.ndarray,
+    pos_sampling_rate: float,
+    dt: float = 1.0,
     adaptive_smoothing=True,
-    alpha=200,
+    alpha: float = 200,
     max_rates=True,
-):
+) -> tuple[dict | np.ndarray, np.ndarray, dict | None, dict | None]:
     """
     Generate smoothed rate maps for neurons with optimized computational efficiency.
 
@@ -22,31 +23,36 @@ def make_rate_maps(
     times and binned animal positions. The rate map for each neuron is smoothed using a
     uniform filter. The function also accounts for cases where occupancy is zero.
 
-    XY position data should be binned into a 2D grid (i.e. using bin_axona_pos_data), and the corresponding bin indices
-    should be provided. The function also requires the sampling rate of the position data.
+    XY position data should be binned into a 2D grid (i.e. using bin_axona_pos_data),
+    and the corresponding bin indices should be provided.
+    The function also requires the sampling rate of the position data.
 
     Args:
-        spike_data (dict): A dictionary containing spike times for each cluster.
-                           The keys are cluster identifiers, and the values are
-                           NumPy arrays of spike times in seconds.
-        pos_sample_times (ndarray): A 1D NumPy array representing the sample times of the animal's position.
-        pos_bin_idx (ndarray): A 2D NumPy array representing the bin indices of the animal's position.
-        pos_sampling_rate (float): The sampling rate of the animal's position in Hz.
-        dt (float, optional): The time step in seconds for binning the spike data.
-                              Defaults to 1.0.
-        adaptive_smoothing (bool, optional): Whether to use adaptive smoothing. Defaults to True.
-        alpha (float, optional): The alpha parameter for adaptive smoothing. Defaults to 200.
-        max_rates (bool, optional): Whether to calculate max and mean firing rates. Defaults to True.
+        spike_data: A dictionary containing spike times for each cluster.
+                    The keys are cluster identifiers, and the values are
+                    NumPy arrays of spike times in seconds.
+        pos_sample_times: A 1D NumPy array representing the position sample times.
+        pos_bin_idx: A 2D NumPy array representing the position bin indices.
+        pos_sampling_rate: The sampling rate of the animal's position in Hz.
+        dt: The time step in seconds for binning the spike data. Defaults to 1.0.
+        adaptive_smoothing: Whether to use adaptive smoothing. Defaults to True.
+        alpha: The alpha parameter for adaptive smoothing. Defaults to 200.
+        max_rates: Whether to calculate max and mean firing rates. Defaults to True.
 
     Returns:
         tuple: A tuple containing the following elements:
-            - rate_maps_dict (dict or ndarray): A dictionary containing the rate maps for each cluster.
-                                    The keys are cluster identifiers, and the values are 2D NumPy arrays.
-                                    If only one rate map is generated, the function returns a 2D NumPy array.
+            - rate_maps_dict (dict or ndarray):
+                A dictionary containing the rate maps for each cluster.
+                The keys are cluster identifiers, and the values are 2D NumPy arrays.
+                If only one rate map is generated, we return a 2D NumPy array.
             - pos_map (ndarray): A 2D NumPy array representing the 2D occupancy map.
 
-            - max_rates_dict (dict): A dictionary containing the maximum firing rates for each cluster. Only returned if `max_rates` is True.
-            - mean_rates_dict (dict): A dictionary containing the mean firing rates for each cluster. Only returned if `max_rates` is True.
+            - max_rates_dict (dict):
+                A dictionary containing the maximum firing rates for each cluster.
+                Only returned if `max_rates` is True.
+            - mean_rates_dict (dict):
+                A dictionary containing the mean firing rates for each cluster.
+                Only returned if `max_rates` is True.
 
     Raises:
         TypeError: If the input types do not match the expected types for `spike_data`
@@ -69,7 +75,8 @@ def make_rate_maps(
 
     # Compute the 2D occupancy map
     pos_map, _, _ = np.histogram2d(pos_bin_idx[0], pos_bin_idx[1], bins=bins)
-    # Normalize by the sampling rate to give seconds per bin. This ensures that rate maps are in units of Hz
+    # Normalize by the sampling rate to give seconds per bin.
+    # This ensures that rate maps are in units of Hz
     pos_map /= pos_sampling_rate
 
     # Initialize the rate maps dictionary with zeros using cluster keys
@@ -94,12 +101,13 @@ def make_rate_maps(
             _, pos_map, rate_map, _ = adaptive_smooth(spike_map, pos_map, alpha)
             rate_maps_dict[cluster] = rate_map
         else:
-            # Calculate the raw rate map by dividing spike count by occupancy time (plus a small constant)
+            # Calculate the raw rate map by dividing spike count
+            # by occupancy time (plus a small constant)
             raw_rate_map = spike_map / (pos_map * dt + 1e-10)
             # Return raw rate and pos map if adaptive smoothing is not used
             rate_maps_dict[cluster] = raw_rate_map
 
-        if max_rates == True:
+        if max_rates is True:
             # Calculate max and mean firing rates
             max_rates_dict[cluster] = np.nanmax(rate_maps_dict[cluster])
             mean_rates_dict[cluster] = np.nanmean(rate_maps_dict[cluster])
@@ -107,14 +115,14 @@ def make_rate_maps(
     # Set pos map to NaN where occupancy is 0
     pos_map[pos_map == 0] = np.nan
 
-    # Before returning, transpose the arrays to account for an axis transformation that np.histogram2D does
+    # Transpose the arrays to account for an axis transformation from np.histogram2D
     rate_maps_dict = {
         cluster: rate_map.T for cluster, rate_map in rate_maps_dict.items()
     }
     pos_map = pos_map.T
 
     # If only one rate map, convert to array
-    if return_dict == False:
+    if return_dict is False:
         rate_maps_dict = rate_maps_dict[0]
 
     if max_rates is True:
@@ -131,10 +139,11 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
         rate_maps_dict (dict): A dictionary containing rate maps for each trial.
         cluster_id (int): The ID of the cluster to plot.
         kwargs: Optional keyword arguments including:
-            - max_rates_dict (dict): A dictionary containing maximum firing rates for each trial and cluster.
-            - mean_rates_dict (dict): A dictionary containing mean firing rates for each trial and cluster.
-            - spatial_info_dict (dict): A dictionary containing spatial information for each trial and cluster.
-            - spatial_significance_dict (dict): A dictionary containing spatial significance for each trial and cluster.
+            - max_rates_dict: {trial: {cluster_id: max_rate}}
+            - mean_rates_dict: {trial: {cluster_id: mean_rate}}
+            - spatial_info_dict: {trial: {cluster_id: spatial_info}}
+            - spatial_significance_dict: {trial: {cluster_id: spatial_significance}}
+
             - session (str): The session identifier. Defaults to "N/A".
             - age (int): The age of the cluster. Defaults to None.
     """
@@ -199,7 +208,7 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
                     and cluster_id in spatial_info_dict[session_key]
                 ):
                     title_parts.append(
-                        f"Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f}"
+                        f"Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f}"  # noqa: E501
                     )
                 if (
                     session_key in spatial_significance_dict
@@ -221,18 +230,19 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
 
 
 def speed_filter_spikes(
-    current_trial_spikes,
-    speed_data,
-    position_sampling_rate,
-    speed_lower_bound,
-    speed_upper_bound,
-):
+    current_trial_spikes: dict,
+    speed_data: np.ndarray,
+    position_sampling_rate: float,
+    speed_lower_bound: float,
+    speed_upper_bound: float,
+) -> dict:
     """
     Filters spike times based on the animal's speed at the time of the spike.
 
     Parameters:
-    - current_trial_spikes (dict): Dictionary containing spike times. Keys are cluster IDs and values are numpy arrays of spike times.
-    - speed_array (array): Array containing speed values sampled at `position_sampling_rate`.
+    - current_trial_spikes (dict): Dictionary containing spike times.
+        Keys are cluster IDs and values are numpy arrays of spike times.
+    - speed_array (array): Speed values sampled at `position_sampling_rate`.
     - position_sampling_rate (float): Sampling rate of the position data in Hz.
     - speed_lower_bound (float): Lower bound of the speed range.
     - speed_upper_bound (float): Upper bound of the speed range.
@@ -267,17 +277,27 @@ def speed_filter_spikes(
     return filtered_spikes
 
 
-def bin_pos_data_axona(pos_data, bin_length=2.5, speed_threshold=2.5):
+def bin_pos_data_axona(
+    pos_data: dict, bin_length: float = 2.5, speed_threshold: float = 2.5
+) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray, float]:
     """
-    Unpacks the position data from the Axona format for rate map generation, and bin poitions.
-    params:
-    pos_data (dict): A dictionary containing the animal's position data in pixels and header information.
-                     'xy_position' key has a DataFrame with x and y coordinates as row indices
-                     and time as columns.
-                     'header' key contains metadata such as 'min_x', 'max_x', 'min_y', 'max_y'.
-    bin_length (float, optional): The length of each square bin in centimeters. Defaults to 2.5.
-    speed_threshold (float, optional): The speed threshold in cm/s for filtering the position data. Defaults to 2.5.
+    Unpacks the position data from the Axona format
+    for rate map generation, and bin positions.
 
+    Parameters:
+        pos_data: Dict containing position data in pixels and header information.
+                 'xy_position' key has a DataFrame with x and y coords as row indices
+                 and time as columns.
+                 'header' key contains metadata inc. 'min_x', 'max_x', 'min_y', 'max_y'.
+        bin_length: The length of each square bin in centimeters. Defaults to 2.5.
+        speed_threshold: The speed threshold in cm/s for filtering the position data.
+                        Defaults to 2.5.
+
+    Returns:
+        tuple: A tuple containing:
+            - pos_bin_idx: Binned x,y position indices as tuple of ndarrays
+            - pos_sample_times: Position sample timestamps as ndarray
+            - pos_sampling_rate: Position sampling rate in Hz as float
     """
 
     positions = pos_data["xy_position"]
@@ -291,7 +311,7 @@ def bin_pos_data_axona(pos_data, bin_length=2.5, speed_threshold=2.5):
     bin_length = bin_length * scaled_ppm / 100  # convert to meters and then to pixels
 
     # Extract raw field of view (FOV) pixel boundaries
-    # These coordinates are rounded to the nearest lower and upper bin edges, respectively
+    # These coordinates are rounded to the nearest lower and upper bin edges
     min_x_raw = np.floor_divide(pos_data["header"]["min_x"], bin_length) * bin_length
     max_x_raw = np.ceil(pos_data["header"]["max_x"] / bin_length) * bin_length
     min_y_raw = np.floor_divide(pos_data["header"]["min_y"], bin_length) * bin_length
@@ -311,7 +331,7 @@ def bin_pos_data_axona(pos_data, bin_length=2.5, speed_threshold=2.5):
     x_bin_edges = np.linspace(min_x, max_x, x_bins + 1)
     y_bin_edges = np.linspace(min_y, max_y, y_bins + 1)
 
-    # Impute missing values (NaNs) in the 'positions' DataFrame with their respective mean values
+    # Impute missing values in the 'positions' df with their respective mean values
     positions.fillna(positions.mean(), inplace=True)
 
     # Extract x and y coordinates and their corresponding timestamps from the DataFrame
@@ -335,16 +355,19 @@ def bin_pos_data_axona(pos_data, bin_length=2.5, speed_threshold=2.5):
     return pos_bin_idx, pos_sample_times, pos_sampling_rate
 
 
-def bin_pos_data_dlc(pos_data, bin_length=2.5, speed_threshold=2.5):
+def bin_pos_data_dlc(
+    pos_data: dict, bin_length: float = 2.5, speed_threshold: float = 2.5
+) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray, float]:
     """
-    Unpacks the position data from the DeepLabCut format for rate map generation, and bin poitions. Estimates bin edges based on max and min position values.
+    Unpacks the position data from the DeepLabCut format for rate map generation,
+    and bins positions. Estimates bin edges based on max and min position values.
     params:
-    pos_data (dict): A dictionary containing the animal's position data in pixels and header information.
-                     'xy_position' key has a DataFrame with x and y coordinates as row indices
+    pos_data: A dictionary containing position data in pixels and header info.
+                     'xy_position' key is a DataFrame with x and y coords as row indices
                      and time as columns.
-                     'header' key contains metadata such as 'min_x', 'max_x', 'min_y', 'max_y'.
-    bin_length (float, optional): The length of each square bin in centimeters. Defaults to 2.5.
-    speed_threshold (float, optional): The speed threshold in cm/s for filtering the position data. Defaults to 2.5.
+                     'header' key contains metadata.
+    bin_length: The length of each square bin in centimeters. Default 2.5.
+    speed_threshold: The speed threshold (cm/s) for filtering position. Default 2.5.
 
     """
 
@@ -358,8 +381,9 @@ def bin_pos_data_dlc(pos_data, bin_length=2.5, speed_threshold=2.5):
     # Get bin length in pixels
     bin_length = bin_length * scaled_ppm / 100  # convert to meters and then to pixels
 
-    # Extract raw field of view (FOV) pixel boundaries -CURRENLY SET TO MAX AND MIN VALUES OF POSITION DATA - NEED TO CHANGE
-    # These coordinates are rounded to the nearest lower and upper bin edges, respectively
+    # Extract raw field of view (FOV) pixel boundaries
+    # -CURRENLY SET TO MAX AND MIN VALUES OF POSITION DATA - NEED TO CHANGE
+    # These coordinates are rounded to the nearest lower and upper bin edges
     min_x_raw = np.floor_divide(np.nanmin(positions.loc["X"]), bin_length) * bin_length
     max_x_raw = np.ceil(np.nanmax(positions.loc["X"]) / bin_length) * bin_length
     min_y_raw = np.floor_divide(np.nanmin(positions.loc["Y"]), bin_length) * bin_length
@@ -383,7 +407,7 @@ def bin_pos_data_dlc(pos_data, bin_length=2.5, speed_threshold=2.5):
     x_bin_edges = np.linspace(min_x, max_x, x_bins + 1)
     y_bin_edges = np.linspace(min_y, max_y, y_bins + 1)
 
-    # Impute missing values (NaNs) in the 'positions' DataFrame with their respective mean values
+    # Impute missing values (NaNs) in the 'positions' df with mean values
     positions.fillna(positions.mean(), inplace=True)
 
     # Extract x and y coordinates and their corresponding timestamps from the DataFrame
