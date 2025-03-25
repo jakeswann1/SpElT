@@ -10,7 +10,7 @@ from .utils import gs_to_df
 si.set_global_job_kwargs(n_jobs=-1)
 
 
-class ephys:
+class ephys:  # noqa: N801
     """
     A class to manage ephys data, including metadata, position, LFP, and spike data
     recorded from (currently):

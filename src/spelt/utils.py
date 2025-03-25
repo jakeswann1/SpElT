@@ -1,7 +1,7 @@
 # Various functions useful for analysis
 import numpy as np
-from scipy.sparse import coo_matrix
 import spikeinterface as si
+from scipy.sparse import coo_matrix
 
 
 def load_session(obj, lfp_sampling_rate):
@@ -174,8 +174,8 @@ def compute_extensions_lazy(analyzer: si.SortingAnalyzer, extension_list: list[s
 
     Returns:
     --------
-    dict
-        Dictionary containing the computed extensions.
+    analyzer : si.SortingAnalyzer
+        The updated sorting analyzer object with computed extensions.
     """
     for ext in extension_list:
         if not analyzer.has_extension(ext):
