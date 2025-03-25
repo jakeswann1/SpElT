@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import numpy as np
 import spikeinterface as si
 import spikeinterface.extractors as se
@@ -175,7 +176,6 @@ class ephys:
                 - spike_trial: A list of trial IDs for each spike
                 - sampling_rate: The sampling rate of the spike data
         """
-        import spikeinterface.extractors as se
 
         if self.analyzer is None:
             self._load_ephys()
@@ -363,7 +363,7 @@ class ephys:
 
     def load_pos(self, trial_list=None, output_flag=True, reload_flag=False):
         """
-        Loads  and postprocesses the position data for a specified trial. Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
+        Loads and postprocesses the position data for a specified trial. Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
 
         Args:
             trial_list (int or array): The index of the trial for which position data is to be loaded.
@@ -405,7 +405,7 @@ class ephys:
                 if "t-maze" in self.trial_list[trial_iterator]:
                     override_ppm = 615
                     (
-                        print(f"Real PPM artifically set to 615 (t-maze default)")
+                        print("Real PPM artifically set to 615 (t-maze default)")
                         if output_flag
                         else None
                     )
@@ -463,14 +463,13 @@ class ephys:
                 led_pix.columns /= pos_sampling_rate
 
             elif self.recording_type == "NP2_openephys":
-                from .np2_utils.load_pos_dlc import load_pos_dlc
                 from .np2_utils.load_pos_bonsai import (
-                    load_pos_bonsai_laurenz,
                     load_pos_bonsai_jake,
                 )
+                from .np2_utils.load_pos_dlc import load_pos_dlc
                 from .np2_utils.postprocess_pos_data_np2 import (
-                    postprocess_dlc_data,
                     postprocess_bonsai_jake,
+                    postprocess_dlc_data,
                 )
 
                 # Load TTL sync data
@@ -629,7 +628,7 @@ class ephys:
         if not self.analyzer.has_extension("waveforms"):
             self.analyzer.compute(["random_spikes", "waveforms"])
 
-        waveforms = self.analyzer.get_extension("waveforms").get_data()
+        waveforms = self.analyzer.get_extension("waveforms").get_data(outputs="by_unit")
         if clusters_to_load is not None:
             waveforms = waveforms[clusters_to_load]
         return waveforms

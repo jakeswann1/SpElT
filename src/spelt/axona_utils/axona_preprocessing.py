@@ -226,6 +226,8 @@ def sort_axona(recording, recording_name, base_folder, electrode_type, sorting_s
         sorting.save(folder=sorting_path / "sort")
         print(f"Sorting saved to {sorting_path}/sort\n")
 
+    return sorting
+
 
 def get_mode(set_file):
     # Gets recording mode from channel 0 in set file

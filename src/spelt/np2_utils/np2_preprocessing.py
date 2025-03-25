@@ -55,3 +55,5 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
         #     file.write(f'dat_path = "{base_folder}/concat_{area}.dat"\n')
         #     file.writelines(lines[1:])
         #     file.truncate()
+
+    return sorting
