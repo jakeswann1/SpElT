@@ -1,10 +1,12 @@
 # Various functions useful for analysis
 import numpy as np
+from scipy.sparse import coo_matrix
+import spikeinterface as si
 
 
 def load_session(obj, lfp_sampling_rate):
     """
-    Loads all metadata, position files, and spikes for all trials of a session into an existing ephys class object
+    Loads all data for all trials of a session into an existing ephys class object
 
     Params:
      - obj: instance of an ephys class object
@@ -64,7 +66,12 @@ def find_all_sessions(sheet_path, data_path, raw_only=False, probe=None, animal=
 #     '''
 
 #     # Initialise DataFrame for ephys objects
-#     df_all_sessions = pd.DataFrame(data = None, index = session_dict.keys(), columns = ['ephys_object'], dtype='object')
+#     df_all_sessions = pd.DataFrame(
+#           data = None,
+#           index = session_dict.keys(),
+#           columns = ['ephys_object'],
+#           dtype='object'
+#           )
 
 #     for i, session_path in enumerate(session_dict.values()):
 #         # Create ephys object for session and add to dataframe
@@ -74,14 +81,17 @@ def find_all_sessions(sheet_path, data_path, raw_only=False, probe=None, animal=
 #     return df_all_sessions
 
 
-def select_spikes_by_trial(spike_data, trials, trial_offsets):
+def select_spikes_by_trial(
+    spike_data: dict, trials: int | list[int], trial_offsets: list[float]
+):
     """
-    Select spikes from specific trials. Returns spikes time-indexed from 0 at the start of each trial
+    Select spikes from specific trials.
+    Returns spikes time-indexed from 0 at the start of each trial
 
     Parameters:
     - spike_data: Dictionary containing spike data (including 'spike_trial').
-    - trials (int or list of int): Single trial number or a list of trial numbers to filter by.
-    - trial_offsets (list of float): trial offset start times from 0 (FOR ALL TRIALS IN SESSION)
+    - trials: trial number(s) to filter by.
+    - trial_offsets: trial offset start times from 0 (FOR ALL TRIALS IN SESSION)
 
     Returns:
     - Dictionary containing filtered spike times and clusters.
@@ -101,9 +111,6 @@ def select_spikes_by_trial(spike_data, trials, trial_offsets):
     return result
 
 
-from scipy.sparse import coo_matrix
-
-
 def find_template_for_clusters(clu, spike_templates):
     """
     Determine the most represented template for each cluster and return as a dictionary.
@@ -118,8 +125,8 @@ def find_template_for_clusters(clu, spike_templates):
     Returns:
     --------
     temp_per_clu_dict : dict
-        Dictionary where keys are cluster IDs and values are the template most represented
-        for that cluster.
+        Dictionary where keys are cluster IDs and values are the template most
+        represented for that cluster.
     """
     # Ensure the input arrays are 1D
     clu = clu.reshape(-1)
@@ -151,3 +158,26 @@ def find_template_for_clusters(clu, spike_templates):
     }
 
     return temp_per_clu_dict
+
+
+def compute_extensions_lazy(analyzer: si.SortingAnalyzer, extension_list: list[str]):
+    """
+    Compute extensions for a given sorting extractor using a list of extensions.
+    This function checks if each extension is already computed before computing it.
+
+    Parameters:
+    -----------
+    analyzer : si.SortingAnalyzer
+        The sorting analyzer object.
+    extension_list : list[str]
+        List of extensions to compute.
+
+    Returns:
+    --------
+    dict
+        Dictionary containing the computed extensions.
+    """
+    for ext in extension_list:
+        if not analyzer.has_extension(ext):
+            analyzer.compute(ext)
+    return analyzer
