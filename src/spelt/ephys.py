@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import spikeinterface as si
 import spikeinterface.extractors as se
+import spikeinterface.preprocessing as spre
 
 from .utils import gs_to_df
 
@@ -101,7 +102,7 @@ class ephys:
                 raise ValueError(
                     f"Session {self.animal}_{self.date_short} not found in Google Sheet"
                 )
-            if "Format" in session.columns and pos_only != True:
+            if "Format" in session.columns and not pos_only:
                 session = session[
                     session["Format"] != "thresholded"
                 ]  # Drops thresholded Axona recordings unless pos_only=True
@@ -272,7 +273,7 @@ class ephys:
         if self.analyzer is None:
             self._load_ephys()
 
-        recording = self.analyzer.recording
+        recording = self.raw_recording
 
         # Resample
         recording = spre.resample(recording, sampling_rate)
@@ -290,13 +291,14 @@ class ephys:
         if self.recording_type == "nexus":
             recording = spre.clip(recording, a_min=-32000, a_max=32000)
 
-        # Set channels to load to list of str to match recording object - not ideal but other fixes are harder
+        # Set channels to load to list of str to match recording object
+        #  - not ideal but other fixes are harder
         if channels is not None:
             channels = list(map(str, channels))
 
         for trial_iterator in trial_list:
             # Check if LFP is already loaded for session:
-            if reload_flag == False and self.lfp_data[trial_iterator] != None:
+            if not reload_flag and self.lfp_data[trial_iterator] is not None:
                 print(f"LFP data already loaded for trial {trial_iterator}")
             else:
                 # Load LFP traces for trial
@@ -385,7 +387,7 @@ class ephys:
         for trial_iterator in trial_list:
 
             # Check if position data is already loaded for session:
-            if reload_flag == False and self.pos_data[trial_iterator] != None:
+            if not reload_flag and self.pos_data[trial_iterator] is not None:
                 print(f"Position data already loaded for trial {trial_iterator}")
                 continue
 
@@ -401,7 +403,8 @@ class ephys:
                 from .axona_utils.load_pos_axona import load_pos_axona
                 from .axona_utils.postprocess_pos_data import postprocess_pos_data
 
-                # TODO: NEEDS FIXING PROPERLY!!!! If t-maze trial, rescale PPM because it isn't set right in pos file
+                # TODO: NEEDS FIXING PROPERLY!!!!
+                # If t-maze trial, rescale PPM because it isn't set right in pos file
                 if "t-maze" in self.trial_list[trial_iterator]:
                     override_ppm = 615
                     (
@@ -435,7 +438,8 @@ class ephys:
 
                         (
                             print(
-                                "No .csv or .bin file found, trying to load from .pos file"
+                                """No .csv or .bin file found,
+                                trying to load from .pos file"""
                             )
                             if output_flag
                             else None
@@ -473,7 +477,7 @@ class ephys:
                 )
 
                 # Load TTL sync data
-                if self.sync_data[trial_iterator] == None:
+                if self.sync_data[trial_iterator] is None:
                     self.load_ttl(trial_iterator, output_flag=False)
                 # Get TTL times and drop the first pulse
                 try:
@@ -485,7 +489,7 @@ class ephys:
                     Warning(f"No TTL data found for trial {trial_iterator}")
 
                 # Jake Bonsai Format
-                if path.with_suffix(".csv").exists() == True:
+                if path.with_suffix(".csv").exists():
                     print("Loading raw Bonsai position data") if output_flag else None
                     trial_type = self.session["Trial Type"].iloc[trial_iterator]
                     raw_pos_data = load_pos_bonsai_jake(
@@ -499,7 +503,7 @@ class ephys:
 
                     pos_sampling_rate = raw_pos_data["sampling_rate"]
 
-                elif (path / "dlc.csv").exists() == True:
+                elif (path / "dlc.csv").exists():
                     print("Loading DLC position data") if output_flag else None
                     # Load DeepLabCut position data from csv file
                     raw_pos_data = load_pos_dlc(
@@ -604,6 +608,12 @@ class ephys:
         multi_segment_sorting = si.split_sorting(sorting, recording_list)
 
         multi_segment_recording = si.append_recordings(recording_list)
+
+        # Save raw recording for LFP extraction
+        self.raw_recording = multi_segment_recording
+
+        # Highpass filter recording
+        multi_segment_recording = spre.highpass_filter(multi_segment_recording, 300)
 
         # Make a single multisegment SortingAnalyzer for the whole session
         self.analyzer = si.create_sorting_analyzer(
