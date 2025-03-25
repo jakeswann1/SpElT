@@ -12,9 +12,11 @@ si.set_global_job_kwargs(n_jobs=-1)
 
 class ephys:
     """
-    A class to manage ephys data, including metadata, position, LFP, and spike data recorded from (currently):
+    A class to manage ephys data, including metadata, position, LFP, and spike data
+    recorded from (currently):
     - raw DACQ recordings sorted with Kilosort 2 and curated with phy
-    - Neuropixels 2 recordings acquired with OpenEphys, sorted with Kilosort 4 and curated with phy, with video tracking data from Bonsai
+    - Neuropixels 2 recordings acquired with OpenEphys, sorted with Kilosort 4 and
+      curated with phy, with video tracking data from Bonsai
 
     Assumes a basic file structure of path_to_data/animal/YYYY-MM-DD/ for each session
 
@@ -37,7 +39,8 @@ class ephys:
         obj.load_spikes()
 
     Attributes:
-        recording_type (str): Type of the recording. Current options: 'nexus', 'np2_openephys'
+        recording_type (str): Type of the recording.
+            Current options: 'nexus', 'np2_openephys'
 
         path (str): Path to the specific animal and date recording folder
         sheet_url (str): URL of the Google Sheet containing additional metadata
@@ -67,7 +70,7 @@ class ephys:
         spike_data (dict): Dictionary to store spike data for each trial.
 
         max_speed (int): Maximum speed constant for position processing.
-        smoothing_window_size (int): Smoothing window size constant for position processing.
+        smoothing_window_size (int): Smoothing window size for position processing.
 
     Dependencies:
         spikeinterface (pip install spikeinterface)
@@ -157,25 +160,30 @@ class ephys:
 
     def load_spikes(
         self,
-        unit_ids=None,
-        quality=None,
+        unit_ids: list | None = None,
+        quality: list[str] | None = None,
         load_templates=False,
         load_waveforms=False,
         load_channels=False,
     ):
         """
-        Loads the spike data for the session. Currently from Kilosort 2/4 output files using the spikeinterface package
+        Loads the spike data for the session.
+        Currently from Kilosort 2/4 output files using the spikeinterface package
 
         Args:
-            clusters_to_load (list of int, optional): A list of cluster IDs to load. Default is all
-            quality (list of str, optional): A list of quality labels to load. Default is all
+            unit_ids: A list of unit IDs to load. Default is all
+            quality: A list of quality labels to load. Default is all
+            load_templates (bool): If True, loads the templates for the specified units.
+            load_waveforms (bool): If True, loads the waveforms for the specified units.
+            load_channels (bool): If True, loads the peak channels for each unit.
 
         Populates:
-            self.spike_data (dict): A dictionary that stores spike data for the session. The spike data is stored in the following keys:
-                - spike_times: A list of spike times in seconds
-                - spike_clusters: A list of cluster IDs for each spike
-                - spike_trial: A list of trial IDs for each spike
-                - sampling_rate: The sampling rate of the spike data
+            self.spike_data (dict): A dictionary that stores spike data for the session.
+                The spike data is stored in the following keys:
+                    - spike_times: A list of spike times in seconds
+                    - spike_clusters: A list of cluster IDs for each spike
+                    - spike_trial: A list of trial IDs for each spike
+                    - sampling_rate: The sampling rate of the spike data
         """
 
         if self.analyzer is None:
@@ -239,27 +247,30 @@ class ephys:
 
     def load_lfp(
         self,
-        trial_list=None,
-        sampling_rate=1000,
-        channels=None,
+        trial_list: int | list[int] = None,
+        sampling_rate: int = 1000,
+        channels: list | None = None,
         scale_to_uv=True,
         reload_flag=False,
-        bandpass_filter=None,
+        bandpass_filter: list[int, int] | None = None,
     ):
         """
-        Loads the LFP (Local Field Potential) data for a specified trial. Currently from raw Dacq .bin files using the spikeinterface package
+        Loads the LFP (Local Field Potential) data for a specified trial.
+            Currently from raw Dacq .bin files using the spikeinterface package
         Masks clipped values and scales to microvolts based on the gain in the .set file
 
         Args:
-            trial_list (int or array-like): The index of the trial for which LFP data is to be loaded.
-            sampling_rate (int): The desired sampling rate for the LFP data. Default is 1000 Hz
-            channels (list of int, optional): A list of channel IDs from which LFP data is to be extracted. Default is all
-            scale_to_uv (bool, optional): choose whether to scale raw LFP trace to microvolts based on the gain in the .set file. Default True
-            reload_flag (bool, optional): if true, forces reloading of data. If false, only loads data for trials with no LFP data loaded. Default False
-            bandpass_filter (2-element array, optional): apply bandpass filter with min and max frequency. Default None. e.g. [5 100] would bandpass filter @ 5-100Hz
+            trial_list: The index of the trial(s) to load. Default is all
+            sampling_rate: The desired sampling rate for the LFP data
+            channels: A list of channel IDs to load. Default is all
+            scale_to_uv (bool, optional): choose whether to scale raw LFP trace to uv
+            reload_flag (bool, optional): if true, forces reloading of data.
+                If false, only loads data for trials with no LFP data loaded
+            bandpass_filter: apply bandpass filter with min and max frequency.
 
         Populates:
-            self.lfp_data (list): A list that stores LFP data for each trial. The LFP data for the specified trial is added at the given index.
+            self.lfp_data (list): A list that stores LFP data for each trial.
+                The LFP data for the specified trial is added at the given index.
         """
         import spikeinterface.preprocessing as spre
 
@@ -317,15 +328,19 @@ class ephys:
                     "channels": channels,
                 }
 
-    def load_ttl(self, trial_iterators=None, output_flag=True):
+    def load_ttl(
+        self, trial_iterators: int | list[int] | None = None, output_flag=True
+    ):
         """
         Load TTL data for a specified trial from OpenEphys recording
 
         Args:
-            trial_list (int or array-like): The index of the trial for which TTL data is to be loaded.
+            trial_list: The index of the trial(s) for which TTL data is to be loaded.
+            output_flag: if True, print a statement when loading the TTL data
 
         Populates:
-            self.ttl_data (list): A list that stores TTL data for each trial. The TTL data for the specified trial is added at the given index.
+            self.ttl_data (list): A list that stores TTL data for each trial.
+                The TTL data for the specified trial is added at the given index.
         """
         if self.recording_type != "NP2_openephys":
             print("TTL data only available for NP2_openephys recordings")
@@ -363,18 +378,25 @@ class ephys:
                 self.sync_data[trial_iterator] = {"ttl_timestamps": None}
                 Warning(f"No TTL data found for trial {trial_iterator}")
 
-    def load_pos(self, trial_list=None, output_flag=True, reload_flag=False):
+    def load_pos(
+        self,
+        trial_list: int | list[int] | None = None,
+        output_flag=True,
+        reload_flag=False,
+    ):
         """
-        Loads and postprocesses the position data for a specified trial. Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
+        Loads and postprocesses the position data for a specified trial.
+        Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
 
         Args:
-            trial_list (int or array): The index of the trial for which position data is to be loaded.
-            output_flag (bool): if True, print a statement when loading the pos file (default True)
-            reload_flag (bool): if True, forces reloading of data. If
-                false, only loads data for trials with no position data loaded. Default False
+            trial_list: The index of the trial for which position data is to be loaded.
+            output_flag: if True, print a statement when loading the pos file
+            reload_flag: if True, forces reloading of data. If
+                false, only loads data for trials with no position data loaded
 
         Populates:
-            self.pos_data (list): A list that stores position data for each trial. The position data for the specified trial is added at the given index.
+            self.pos_data (list): A list that stores position data for each trial.
+                The position data for the specified trial is added at the given index.
         """
 
         # Deal with int trial_list

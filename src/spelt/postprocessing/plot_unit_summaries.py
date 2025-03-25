@@ -11,6 +11,7 @@ def plot_unit_summaries(
     analyzer: si.SortingAnalyzer,
     units_to_plot=None,
     output_folder: Path | None = None,
+    show: bool = True,
 ):
 
     required_extensions = [
@@ -37,4 +38,7 @@ def plot_unit_summaries(
             plt.savefig(
                 output_folder / f"unit{unit_id}.png", dpi=300, bbox_inches="tight"
             )
+
+        if show:
+            plt.show()
         plt.close()
