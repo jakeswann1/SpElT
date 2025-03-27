@@ -71,21 +71,19 @@ class ephys:  # noqa: N801
 
         max_speed (int): Maximum speed constant for position processing.
         smoothing_window_size (int): Smoothing window size for position processing.
-
-    Dependencies:
-        spikeinterface (pip install spikeinterface)
-        probeinterface (pip install probeinterface)
-        numpy, pandas
     """
 
-    def __init__(self, path, sheet_url, area=None, pos_only=False):
+    def __init__(self, path, sheet_url, analyzer=None, area=None, pos_only=False):
         """
         Initialize the ephys object.
 
         Parameters:
         path (str): The path to the recording.
         sheet_url (str): URL of the Google Sheet containing additional metadata.
+        analyzer (SortingAnalyzer, optional): A SortingAnalyzer object for the session.
+            Default is None, a new one will be created on _load_ephys() call
         area (str, optional): The brain area targeted for recording. Default is None.
+        pos_only (bool, optional): If True, only loads position data. Default is False.
         """
 
         self.recording_path = Path(path)
@@ -146,7 +144,7 @@ class ephys:  # noqa: N801
         # Collect each trial number
         self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
 
-        self.analyzer = None
+        self.analyzer = analyzer
 
         # Initialise data variables
         self.spike_data = {}
@@ -282,7 +280,7 @@ class ephys:  # noqa: N801
             print("No trial list specified, loading LFP data for all trials")
 
         if self.analyzer is None:
-            self._load_ephys()
+            self._load_ephys(sparse=False)
 
         recording = self.raw_recording
 
@@ -594,7 +592,7 @@ class ephys:  # noqa: N801
                 "scaled_ppm": 400,  # HARD CODED - TODO: FIX IF NECESSARY
             }
 
-    def _load_ephys(self, keep_good_only=False):
+    def _load_ephys(self, keep_good_only=False, sparse=True):
         """
         Make a SortingAnalyzer for extracting spikes and LFP
         """
@@ -639,7 +637,7 @@ class ephys:  # noqa: N801
 
         # Make a single multisegment SortingAnalyzer for the whole session
         self.analyzer = si.create_sorting_analyzer(
-            multi_segment_sorting, multi_segment_recording, sparse=True
+            multi_segment_sorting, multi_segment_recording, sparse=sparse
         )
 
     def _load_templates(self, clusters_to_load=None):
