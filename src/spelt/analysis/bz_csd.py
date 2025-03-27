@@ -1,23 +1,27 @@
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 
-def bz_csd(lfp, **kwargs):
+def bz_csd(lfp: np.ndarray | dict | pd.DataFrame, **kwargs):
     """
-    Calculates the 1D approximation of current source density (CSD) from a linear array of LFPs.
+    Calculates the 1D approximation of current source density (CSD)
+        from a linear array of LFPs.
     Translated from: https://github.com/buzsakilab/buzcode/blob/master/analysis/lfp/CurrentSourceDensity/bz_CSD.m
 
     Args:
-        lfp (ndarray or dict): LFP data. If ndarray, shape should be (timepoints, channels). If dict, should have fields 'data', 'timestamps', 'sampling_rate'. If pandas DataFrame, should have timestamps as columns, channel IDs as rows
-        **kwargs: Optional keyword arguments for customizing the CSD computation and plotting.
+        lfp: LFP data. If ndarray, shape should be (timepoints, channels).
+            If dict, should have fields 'data', 'timestamps', 'sampling_rate'.
+            If pandas DataFrame, should have timestamps as columns, channel IDs as rows
+        **kwargs: keyword arguments for customizing the CSD computation and plotting.
 
     Returns:
-        dict: CSD data with fields 'data', 'timestamps', 'sampling_rate', 'channels', 'params'.
+        dict: CSD data with fields
+            'data', 'timestamps', 'sampling_rate', 'channels', 'params'.
     """
 
-    import numpy as np
     import matplotlib.pyplot as plt
+    import numpy as np
     from scipy.signal import detrend, savgol_filter
 
     # Parse inputs
@@ -74,11 +78,11 @@ def bz_csd(lfp, **kwargs):
         )
 
     # Calculate CSD
-    CSD = np.diff(lfp_frag, n=2, axis=0)
+    csd_values = np.diff(lfp_frag, n=2, axis=0)
 
     # Generate output dictionary
     csd = {}
-    csd["data"] = CSD
+    csd["data"] = csd_values
     csd["timestamps"] = timestamps[win[0] + 2 : win[1]]  # Remove the adjustment by 2
     csd["sampling_rate"] = sampling_rate
     csd["channels"] = channels
@@ -102,12 +106,12 @@ def bz_csd(lfp, **kwargs):
         plt.show()
 
     if plot_csd:
-        cmax = np.max(np.abs(CSD))
+        cmax = np.max(np.abs(csd_values))
         fig, axes = plt.subplots(1, 2, figsize=(10, 5))
         axes[0].contourf(
             csd["timestamps"],
-            np.arange(CSD.shape[1]),
-            CSD.T,
+            np.arange(csd_values.shape[1]),
+            csd_values.T,
             40,
             cmap="jet",
             vmin=-cmax,
@@ -117,7 +121,7 @@ def bz_csd(lfp, **kwargs):
         axes[0].set_ylabel("Channel")
         axes[0].set_title("CSD")
         axes[0].invert_yaxis()
-        axes[1].plot(csd["timestamps"], np.mean(CSD, axis=1))
+        axes[1].plot(csd["timestamps"], np.mean(csd_values, axis=1))
         axes[1].set_xlabel("Time (s)")
         axes[1].set_ylabel("Average CSD")
         axes[1].set_title("Average CSD")
@@ -130,7 +134,8 @@ def bz_csd(lfp, **kwargs):
 def calculate_csd_df(arm_cycle_df):
     """
     Takes dataframe of LFP data with theta cycles and traversal indices
-    Calculates current-source density for each traversal individually and adds to the dataframe
+    Calculates current-source density for each traversal individually
+        and adds to the dataframe
     """
     # List of index labels which are NOT channel data (hard-coded for now)
     non_ephys_labels = ["Traversal Index", "Cycle Index", "Cycle Theta Phase", "Speed"]
@@ -161,15 +166,24 @@ def calculate_csd_df(arm_cycle_df):
         if traversal_csd is None:
             pass  # Optionally handle this case
         else:
-            # CSD has two fewer samples than LFP, so align CSD to correct timestamps and add to frame
-            csd_df.loc[csd_index, traversal_df.columns[1:-1]] = traversal_csd["data"].T
+            # CSD has two fewer samples than LFP,
+            # so align CSD to correct timestamps and add to frame
+            try:
+                csd_df.loc[csd_index, traversal_df.columns[1:-1]] = traversal_csd[
+                    "data"
+                ].T
+            except ValueError as e:
+                print("CSD calculation failed for traversal", traversal)
+                print("Error:", e)
+                continue
 
     return csd_df, csd_index
 
 
 def mean_csd_theta_phase(arm_csd_df, arm_csd_labels):
     """
-    Takes the processed dataframe with CSD calculated, along with labels specifying which rows refer to these data
+    Takes the processed dataframe with CSD calculated,
+    along with labels specifying which rows refer to these data
     Also takes optional string for displaying arm identity on plot
 
     Returns original dataframe meaned across theta phase bins
@@ -209,8 +223,8 @@ def mean_csd_theta_phase(arm_csd_df, arm_csd_labels):
 
 def plot_csd_theta_phase(mean_csd_data, title="", save_path=None, padding=2):
     """
-    Takes output of the previous function, and plots mean CSD across theta phase using pltcontourf
-    arm
+    Takes output of the previous function,
+    and plots mean CSD across theta phase using pltcontourf
     """
     # Plot using contourf as in bz_csd function
     # Preparing the meshgrid for plotting
@@ -219,13 +233,13 @@ def plot_csd_theta_phase(mean_csd_data, title="", save_path=None, padding=2):
         2 * np.pi / mean_csd_data.shape[1]
     )
     # Cut off the first and last two theta phases to avoid edge effects
-    X, Y = np.meshgrid(theta_phases[2:-2], channels)
+    x, y = np.meshgrid(theta_phases[2:-2], channels)
     mean_csd_data = mean_csd_data.iloc[:, 2:-2]
 
     cmax = np.nanmax(np.abs(mean_csd_data))
     # Plotting using contourf
     plt.figure(figsize=(10, 6))
-    contour = plt.contourf(X, Y, mean_csd_data, 40, cmap="jet", vmin=-cmax, vmax=cmax)
+    contour = plt.contourf(x, y, mean_csd_data, 40, cmap="jet", vmin=-cmax, vmax=cmax)
 
     plt.colorbar(contour)
     # Adding labels and title
@@ -245,3 +259,81 @@ def plot_csd_theta_phase(mean_csd_data, title="", save_path=None, padding=2):
 
     # Show the plot
     plt.show()
+
+
+def process_arm_csd(
+    arm_type,
+    arm_times,
+    cycle_numbers,
+    theta_phase,
+    lfp_timestamps,
+    lfp_data,
+    lfp_sampling_rate,
+    resampled_speed_data,
+    channels_to_load,
+    trial,
+    freq_band_name,
+    csd_path,
+):
+    from spelt.analysis.get_traversal_data import (
+        drop_extreme_cycles,
+        get_data_for_traversals,
+        get_traversal_cycles,
+    )
+
+    # Calculate individual arm traversals and get identity of whole theta cycles
+    arm_cycles = get_traversal_cycles(
+        arm_times, cycle_numbers, lfp_timestamps, lfp_sampling_rate
+    )
+
+    # Get lfp trace, theta phase, timestamps, speed, cycle index and traversal index
+    arm_cycle_df = get_data_for_traversals(
+        arm_cycles,
+        cycle_numbers,
+        lfp_data,
+        resampled_speed_data,
+        channels_to_load,
+        theta_phase,
+        lfp_timestamps,
+    )
+
+    # Drop cycles where any lfp data >= |32000| (clip value for axona)
+    def filter_func(x):
+        # If any value in the group is greater than 32000, exclude the whole group
+        if (x.drop("Cycle Index", axis=1).abs() >= 32000).any(axis=None):
+            return False
+        else:
+            return True
+
+    arm_cycle_df = arm_cycle_df.T.groupby("Cycle Index").filter(filter_func)
+    print(arm_cycle_df[arm_cycle_df["Traversal Index"] == 37].shape)
+
+    # Calculate CSD
+    print(
+        f"""Calculating {arm_type} CSD using
+        {len(np.unique(arm_cycle_df['Cycle Index']))} theta cycles"""
+    )
+    arm_csd_df, arm_csd_labels = calculate_csd_df(arm_cycle_df.T)
+
+    # Drop the first and last theta cycle for each traversal
+    # to remove calculation artifacts
+    arm_csd_df = drop_extreme_cycles(arm_csd_df)
+
+    # Filter dataframe for speed > 2.5 cm/s
+    arm_csd_df = arm_csd_df.loc[:, arm_csd_df.loc["Speed"] > 2.5]
+
+    # Compute mean CSD vs theta phase
+    arm_csd_theta_phase = mean_csd_theta_phase(arm_csd_df, arm_csd_labels)
+
+    # Plot
+    plot_csd_theta_phase(
+        arm_csd_theta_phase,
+        title=f"{arm_type} Arm - {freq_band_name}",
+        save_path=f"{csd_path}/{trial}_CSD_Theta_Phase_{arm_type}_{freq_band_name}.png",
+    )
+
+    # Calculate mean csd for each channel
+    mean_arm_csd = arm_csd_df.mean(axis=1)[arm_csd_labels]
+    mean_arm_csd.columns = [trial]
+
+    return arm_cycle_df, arm_csd_df, arm_csd_labels, arm_csd_theta_phase, mean_arm_csd
