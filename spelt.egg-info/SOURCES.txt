@@ -31,7 +31,7 @@ spelt/np2_utils/__init__.py
 spelt/np2_utils/load_pos_bonsai.py
 spelt/np2_utils/load_pos_dlc.py
 spelt/np2_utils/np2_preprocessing.py
-spelt/np2_utils/postprocess_dlc_data.py
+spelt/np2_utils/postprocess_pos_data_np2.py
 spelt/postprocessing/__init__.py
 spelt/postprocessing/burst_index_and_autocorrelograms.py
 spelt/sorting_utils/__init__.py
