@@ -488,9 +488,10 @@ class ephys:  # noqa: N801
                 led_pos.columns /= pos_sampling_rate
                 led_pix.columns /= pos_sampling_rate
 
-            elif self.tracking_types[trial_idx] == "bonsai_roi":
+            elif self.tracking_types[trial_idx] in ["bonsai_roi", "bonsai_leds"]:
                 from .np2_utils.load_pos_bonsai import (
                     load_pos_bonsai_jake,
+                    load_pos_bonsai_isa,
                 )
                 from .np2_utils.load_pos_dlc import load_pos_dlc
                 from .np2_utils.postprocess_pos_data_np2 import (
@@ -511,7 +512,7 @@ class ephys:  # noqa: N801
                     Warning(f"No TTL data found for trial {trial_iterator}")
 
                 # Jake Bonsai Format
-                if path.with_suffix(".csv").exists():
+                if self.tracking_types[trial_idx] == "bonsai_roi" and path.with_suffix(".csv").exists():
                     print("Loading raw Bonsai position data") if output_flag else None
                     trial_type = self.session["Trial Type"].iloc[trial_iterator]
                     raw_pos_data = load_pos_bonsai_jake(
@@ -521,6 +522,20 @@ class ephys:  # noqa: N801
 
                     xy_pos, speed, direction_disp = postprocess_bonsai_jake(
                         raw_pos_data, self.max_speed, self.smoothing_window_size
+                    )
+
+                    pos_sampling_rate = raw_pos_data["sampling_rate"]
+
+                    # Isa Bonsai Format
+                elif self.tracking_types[trial_idx] == "bonsai_leds" and path.with_suffix(".csv").exists():
+                    print("Loading raw Bonsai position data (Isa format)") if output_flag else None
+                    trial_type = self.session["Trial Type"].iloc[trial_iterator]
+                    raw_pos_data = load_pos_bonsai_isa(
+                        path.with_suffix(".csv"), 400, trial_type
+                    )
+      
+                    xy_pos, speed, direction_disp = postprocess_bonsai_jake(
+                    raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
 
                     pos_sampling_rate = raw_pos_data["sampling_rate"]
@@ -553,6 +568,7 @@ class ephys:  # noqa: N801
                 else:
                     print(f"No position data found for trial {trial_iterator}")
                     raw_pos_data = None
+            
 
             # Populate processed pos data
             self.pos_data[trial_iterator] = {
