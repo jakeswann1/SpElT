@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spelt"
+version = "0.1.0"
+authors = [
+    {name = "Jake Swann", email = "jake.swann.22@ucl.ac.uk"},
+]
+description = "SpElT - a package for analysis of spatial electrophysiology data"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "spikeinterface",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "pynapple",
+]
+
+[project.urls]
+"Bug Reports" = "https://github.com/jakeswann1/SpElT/issues"
+"Source" = "https://github.com/jakeswann1/SpElT"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["spelt"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.rst"]
+"spelt.hello" = ["*.msg"]
+
+[tool.ruff]
+# Enable flake8-bugbear (`B`) rules.
+select = ["E", "F", "B", "I"]
+ignore = []
+
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.9
+target-version = "py39"
+
+[tool.ruff.format]
+# Use double quotes for strings.
+quote-style = "double"
+# Indent with spaces, rather than tabs.
+indent-style = "space"
+# Respect magic trailing commas.
+skip-magic-trailing-comma = true
+
+[tool.ruff.isort]
+known-first-party = ["spelt"]
+
+[tool.ruff.lint]
+# Enable additional rules
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "B",    # flake8-bugbear
+    "I",    # isort
+    "C4",   # flake8-comprehensions
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "S",    # flake8-bandit (security)
+]
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".git",
+    ".ruff_cache",
+    "__pypackages__",
+    "build",
+    "dist",
+    "venv",
+    "env",
+]

@@ -1,7 +1,0 @@
-numpy
-scipy
-spikeinterface
-pandas
-matplotlib
-seaborn
-pynapple
