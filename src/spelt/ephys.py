@@ -114,6 +114,8 @@ class ephys:  # noqa: N801
 
         # Load some metadata from the Google Sheet
         self.trial_list = session.loc[:, "trial_name"].to_list()
+        self.trial_types = session.loc[:, "Trial Type"].to_list()
+        self.tracking_types = session.loc[:, "tracking_type"].to_list()
 
         self.age = (
             int(session.loc[:, "Age"].iloc[0]) if "Age" in session.columns else None
@@ -250,7 +252,7 @@ class ephys:  # noqa: N801
         channels: list | None = None,
         scale_to_uv=True,
         reload_flag=False,
-        bandpass_filter: list[int, int] | None = None,
+        bandpass_filter: list[float, float] | None = None,
     ):
         """
         Loads the LFP (Local Field Potential) data for a specified trial.
@@ -261,7 +263,7 @@ class ephys:  # noqa: N801
             trial_list: The index of the trial(s) to load. Default is all
             sampling_rate: The desired sampling rate for the LFP data
             channels: A list of channel IDs to load. Default is all
-            scale_to_uv (bool, optional): choose whether to scale raw LFP trace to uv
+            scale_to_uv (bool, optional): choose whether to scale raw LFP trace to uV
             reload_flag (bool, optional): if true, forces reloading of data.
                 If false, only loads data for trials with no LFP data loaded
             bandpass_filter: apply bandpass filter with min and max frequency.
@@ -404,7 +406,7 @@ class ephys:  # noqa: N801
             trial_list = self.trial_iterators
             print("No trial list specified, loading position data for all trials")
 
-        for trial_iterator in trial_list:
+        for trial_idx, trial_iterator in enumerate(trial_list):
 
             # Check if position data is already loaded for session:
             if not reload_flag and self.pos_data[trial_iterator] is not None:
@@ -419,7 +421,7 @@ class ephys:  # noqa: N801
                 else None
             )
 
-            if self.recording_type == "nexus":
+            if self.tracking_types[trial_idx] == "axona":
                 from .axona_utils.load_pos_axona import load_pos_axona
                 from .axona_utils.postprocess_pos_data import postprocess_pos_data
 
@@ -486,7 +488,7 @@ class ephys:  # noqa: N801
                 led_pos.columns /= pos_sampling_rate
                 led_pix.columns /= pos_sampling_rate
 
-            elif self.recording_type == "NP2_openephys":
+            elif self.tracking_types[trial_idx] == "bonsai_roi":
                 from .np2_utils.load_pos_bonsai import (
                     load_pos_bonsai_jake,
                 )
@@ -547,18 +549,6 @@ class ephys:  # noqa: N801
 
                     bonsai_timestamps = raw_pos_data["bonsai_timestamps"]
                     camera_timestamps = raw_pos_data["camera_timestamps"]
-
-                # # Laurenz format
-                # elif (path / "bonsai.csv").exists() == True:
-                #     if output_flag:
-                #         print("Loading raw Bonsai position data")
-                #     raw_pos_data = load_pos_bonsai_laurenz(
-                #         path, 400
-                #     )  # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
-                #     # TODO: make dynamic
-                #     raw_pos_data["header"]["bearing_colour_1"] = 90
-
-                #     # TODO: add postprocessing for Laurenz format
 
                 else:
                     print(f"No position data found for trial {trial_iterator}")
