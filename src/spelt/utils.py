@@ -1,5 +1,6 @@
 # Various functions useful for analysis
 import numpy as np
+import pandas as pd
 import spikeinterface as si
 from scipy.sparse import coo_matrix
 
@@ -57,28 +58,24 @@ def find_all_sessions(sheet_path, data_path, raw_only=False, probe=None, animal=
     return session_dict
 
 
-# from .ephys import ephys
-# import pandas as pd
+def make_df_all_sessions(session_dict, sheet_url):
+    """
+    Function to make a dataframe of all sessions and their paths
+    """
 
-# def make_df_all_sessions(session_dict, recording_type = 'nexus'):
-#     '''
-#     Function to make a dataframe of all sessions and their paths
-#     '''
+    from spelt.ephys import ephys
 
-#     # Initialise DataFrame for ephys objects
-#     df_all_sessions = pd.DataFrame(
-#           data = None,
-#           index = session_dict.keys(),
-#           columns = ['ephys_object'],
-#           dtype='object'
-#           )
+    # Initialise DataFrame for ephys objects
+    df_all_sessions = pd.DataFrame(
+        data=None, index=session_dict.keys(), columns=["ephys_object"], dtype="object"
+    )
 
-#     for i, session_path in enumerate(session_dict.values()):
-#         # Create ephys object for session and add to dataframe
-#         obj = ephys(recording_type = recording_type, path = session_path)
-#         df_all_sessions.at[list(session_dict.keys())[i], 'ephys_object'] = obj
+    for i, session_path in enumerate(session_dict.values()):
+        # Create ephys object for session and add to dataframe
+        obj = ephys(sheet_url=sheet_url, path=session_path)
+        df_all_sessions.at[list(session_dict.keys())[i], "ephys_object"] = obj
 
-#     return df_all_sessions
+    return df_all_sessions
 
 
 def select_spikes_by_trial(
