@@ -239,7 +239,7 @@ def plot_csd_theta_phase(mean_csd_data, title="", save_path=None, padding=2):
     cmax = np.nanmax(np.abs(mean_csd_data))
     # Plotting using contourf
     plt.figure(figsize=(10, 6))
-    contour = plt.contourf(x, y, mean_csd_data, 40, cmap="jet", vmin=-cmax, vmax=cmax)
+    contour = plt.contourf(x, y, mean_csd_data, 40, cmap="RdBu", vmin=-cmax, vmax=cmax)
 
     plt.colorbar(contour)
     # Adding labels and title

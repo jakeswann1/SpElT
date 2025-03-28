@@ -3,12 +3,12 @@ import numpy as np
 
 def rayleigh_vector(phases):
     """
-    Calculate the normalized Rayleigh vector magnitude and direction for a set of phase angles.
+    Calculate the normalized Rayleigh vector for a set of phase angles.
     Formula:
     R = sqrt((1/n) * (sum(sin(phases))**2 + sum(cos(phases))**2))
 
     :param phases: NumPy array of phase angles in radians.
-    :return: A tuple containing the normalized Rayleigh vector magnitude and direction.
+    :return: (normalized Rayleigh vector magnitude, direction)
     """
     n = len(phases)
     sum_sin = np.nansum(np.sin(phases))
