@@ -127,3 +127,160 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
     }
 
     return raw_pos_data
+
+def load_pos_bonsai_isa(path, ppm, trial_type):
+    """
+    Load position data from a custom CSV file format.
+
+    Args:
+        path (str): Path to the CSV file.
+        ppm (int): Pixels per meter.
+        trial_type (str): Type of trial.
+
+    Returns:
+        dict: Processed position data.
+    """
+    # Load the CSV file
+    data = pd.read_csv(path)
+    # Drop first row as it may be a dodgy ttl pulse
+    data = data.iloc[1:]
+
+    # Add if statement to check if the ppm is in the sheet or not
+    if 'Value.Item1.Item5.Item1' in data.columns:
+        # Extract the first value from the column (since it's consistent)
+        ppm_value_from_csv = data['Value.Item1.Item5.Item1'].iloc[0]
+        ppm_values = {
+            'baseline': ppm_value_from_csv,
+            'similar': ppm_value_from_csv,
+            'different': ppm_value_from_csv,
+            'sleep': ppm_value_from_csv
+        }
+    else:
+        # Define PPM values and print messages for each trial type (hardcoded for now)
+        ppm_values = {
+            'baseline': 845,  
+            'similar': 845,  
+            'different': 320,  
+            'sleep': 845  
+        }
+
+    # Ensure the trial type is valid
+    if trial_type not in ppm_values:
+        raise ValueError(f'Trial type "{trial_type}" not recognised')
+
+    # Extract timestamps and frame count (same for all conditions)
+    pointgrey_timestamps = data.loc[:, 'Value.Item1.Item1']
+    frame_count = data.loc[:, 'Value.Item1.Item2']
+    bonsai_timestamps = data.loc[:, 'Timestamp']
+
+    # Extract X and Y coordinates for both tracked points (same for all conditions)
+    x1, y1, x2, y2 = [data[col] for col in ['Value.Item1.Item3.X', 'Value.Item1.Item3.Y', 
+                                            'Value.Item1.Item4.X', 'Value.Item1.Item4.Y']]
+
+    # Remove probable tracking errors based on speed threshold
+    max_speed = 4.0  #  max speed in meters/second based on LM scanpix
+    valid_indices = [x1.notna(), x2.notna()]
+    for i, (x, y) in enumerate([(x1, y1), (x2, y2)]):
+        valid_pos = np.where(valid_indices[i])[0]
+        prev_pos = valid_pos[0]
+        for j in valid_pos[1:]:
+            curr_speed = np.sqrt((x.iloc[j] - x.iloc[prev_pos])**2 + (y.iloc[j] - y.iloc[prev_pos])**2) / (ppm * (j - prev_pos))
+            if curr_speed > max_speed:
+                x.iloc[j] = np.nan
+                y.iloc[j] = np.nan
+            else:
+                prev_pos = j
+
+    # Handle dodgy samples based on LED distance
+    led_distance = np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+    max_distance = np.percentile(led_distance.dropna(), 99)  # 99th percentile
+    unreliable_led = 0 if x1.isna().sum() > x2.isna().sum() else 1
+    if unreliable_led == 0:
+        x1[led_distance > max_distance] = np.nan
+        y1[led_distance > max_distance] = np.nan
+    else:
+        x2[led_distance > max_distance] = np.nan
+        y2[led_distance > max_distance] = np.nan
+
+    # Interpolate missing positions
+    for x, y in [(x1, y1), (x2, y2)]:
+        missing_pos = np.where(x.isna())[0]
+        valid_pos = np.where(x.notna())[0]
+        for i in missing_pos:
+            if i > valid_pos[-1]:
+                x.iloc[i] = x.iloc[valid_pos[-1]]
+                y.iloc[i] = y.iloc[valid_pos[-1]]
+            elif i < valid_pos[0]:
+                x.iloc[i] = x.iloc[valid_pos[0]]
+                y.iloc[i] = y.iloc[valid_pos[0]]
+            else:
+                x.iloc[i] = np.interp(i, valid_pos, x.iloc[valid_pos])
+                y.iloc[i] = np.interp(i, valid_pos, y.iloc[valid_pos])
+
+    # Compute midpoint where both values are present
+    mid_x = np.where(x1.notna() & x2.notna(), (x1 + x2) / 2, np.nan)
+    mid_y = np.where(y1.notna() & y2.notna(), (y1 + y2) / 2, np.nan)
+
+    # If only one point is available, use it instead of the midpoint
+    mid_x = np.where(x1.notna() & ~x2.notna(), x1, mid_x)
+    mid_x = np.where(x2.notna() & ~x1.notna(), x2, mid_x)
+    mid_y = np.where(y1.notna() & ~y2.notna(), y1, mid_y)
+    mid_y = np.where(y2.notna() & ~y1.notna(), y2, mid_y)
+
+    # Interpolate missing values if both points are missing
+    mid_x = pd.Series(mid_x).interpolate(method='linear', limit_direction='both')
+    mid_y = pd.Series(mid_y).interpolate(method='linear', limit_direction='both')
+
+    # Store final position estimate (formatted for compatibility)
+    position = pd.DataFrame({'Mid.X': mid_x, 'Mid.Y': mid_y}).T
+    
+    # Assign PPM value based on trial type
+    ppm = ppm_values[trial_type]
+
+    # Print PPM message
+    print(f'Estimating PPM for {trial_type} at {ppm}')
+
+    # Optional: Print position data for verification
+    # print(position.head())
+
+    data.set_index(frame_count, inplace=True)
+
+    # Scale pos data to specific PPM
+    goal_ppm = 400  # HARD CODED FOR NOW
+    scale_fact = goal_ppm / ppm
+    position *= scale_fact
+
+    # Parse pointgrey timestamps
+    time = pointgrey_timestamps.to_numpy()
+    cycle1 = (time >> 12) & 0x1FFF
+    cycle2 = (time >> 25) & 0x7F
+    time = cycle2 + cycle1 / 8000.
+    cycles = np.insert(np.diff(time) < 0, 0, False)
+    cycleindex = np.cumsum(cycles)
+    pointgrey_timestamps = time + cycleindex * 128
+    pointgrey_timestamps = pointgrey_timestamps - min(pointgrey_timestamps)
+
+    # Estimate sampling rate
+    sampling_rate = 1 / np.mean(np.diff(pointgrey_timestamps))
+
+    print(pointgrey_timestamps)
+
+    # Parse bonsai timestamps
+    bonsai_timestamps = bonsai_timestamps.apply(lambda x: parser.isoparse(x))
+    bonsai_timestamps = bonsai_timestamps - bonsai_timestamps.iloc[0]
+    bonsai_timestamps = bonsai_timestamps.apply(lambda x: x.total_seconds())
+    start_time = bonsai_timestamps.iloc[0]
+
+    position.columns = pointgrey_timestamps
+
+    raw_pos_data = {
+        'pos': position,
+        'camera_timestamps': pointgrey_timestamps,
+        'bonsai_timestamps': bonsai_timestamps,
+        'sampling_rate': sampling_rate,
+        'pixels_per_metre': ppm,
+        'scaled_ppm': goal_ppm,
+        'start_time': start_time
+    }
+
+    return raw_pos_data
