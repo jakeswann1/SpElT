@@ -33,6 +33,7 @@ htmlcov/
 
 # Environment variables
 .env
+*.code-workspace
 
 # Data files that shouldn't be versioned
 *.data
