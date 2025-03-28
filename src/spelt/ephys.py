@@ -506,13 +506,17 @@ class ephys:  # noqa: N801
                 try:
                     ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"][2:]
                     ttl_freq = 1 / np.mean(np.diff(ttl_times))
+                    ttl_times = ttl_times - ttl_times[0]
                 except TypeError:
                     ttl_times = None
                     ttl_freq = None
                     Warning(f"No TTL data found for trial {trial_iterator}")
 
                 # Jake Bonsai Format
-                if self.tracking_types[trial_idx] == "bonsai_roi" and path.with_suffix(".csv").exists():
+                if (
+                    self.tracking_types[trial_idx] == "bonsai_roi"
+                    and path.with_suffix(".csv").exists()
+                ):
                     print("Loading raw Bonsai position data") if output_flag else None
                     trial_type = self.session["Trial Type"].iloc[trial_iterator]
                     raw_pos_data = load_pos_bonsai_jake(
@@ -524,18 +528,27 @@ class ephys:  # noqa: N801
                         raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
 
-                    pos_sampling_rate = raw_pos_data["sampling_rate"]
+                    xy_pos.columns = ttl_times[: len(xy_pos.columns)]
 
-                    # Isa Bonsai Format
-                elif self.tracking_types[trial_idx] == "bonsai_leds" and path.with_suffix(".csv").exists():
-                    print("Loading raw Bonsai position data (Isa format)") if output_flag else None
+                    pos_sampling_rate = 1 / np.mean(np.diff(xy_pos.columns))
+
+                # Isa Bonsai Format
+                elif (
+                    self.tracking_types[trial_idx] == "bonsai_leds"
+                    and path.with_suffix(".csv").exists()
+                ):
+                    (
+                        print("Loading raw Bonsai position data (Isa format)")
+                        if output_flag
+                        else None
+                    )
                     trial_type = self.session["Trial Type"].iloc[trial_iterator]
                     raw_pos_data = load_pos_bonsai_isa(
                         path.with_suffix(".csv"), 400, trial_type
                     )
-      
+
                     xy_pos, speed, direction_disp = postprocess_bonsai_jake(
-                    raw_pos_data, self.max_speed, self.smoothing_window_size
+                        raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
 
                     pos_sampling_rate = raw_pos_data["sampling_rate"]
@@ -568,7 +581,6 @@ class ephys:  # noqa: N801
                 else:
                     print(f"No position data found for trial {trial_iterator}")
                     raw_pos_data = None
-            
 
             # Populate processed pos data
             self.pos_data[trial_iterator] = {

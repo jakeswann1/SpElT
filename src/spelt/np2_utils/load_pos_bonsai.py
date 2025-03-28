@@ -106,7 +106,6 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
     pointgrey_timestamps = pointgrey_timestamps - min(pointgrey_timestamps)
 
     # Estimate sampling rate
-    sampling_rate = 1 / np.mean(np.diff(pointgrey_timestamps))
 
     # Parse bonsai timestamps - convert to seconds where 0 is the start of the recording
     bonsai_timestamps = bonsai_timestamps.apply(lambda x: parser.isoparse(x))
@@ -114,7 +113,8 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
     bonsai_timestamps = bonsai_timestamps.apply(lambda x: x.total_seconds())
     start_time = bonsai_timestamps.iloc[0]
 
-    position.columns = pointgrey_timestamps
+    position.columns = bonsai_timestamps
+    sampling_rate = 1 / np.mean(np.diff(bonsai_timestamps))
 
     raw_pos_data = {
         "pos": position,
@@ -127,6 +127,7 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
     }
 
     return raw_pos_data
+
 
 def load_pos_bonsai_isa(path, ppm, trial_type):
     """
@@ -146,36 +147,38 @@ def load_pos_bonsai_isa(path, ppm, trial_type):
     data = data.iloc[1:]
 
     # Add if statement to check if the ppm is in the sheet or not
-    if 'Value.Item1.Item5.Item1' in data.columns:
+    if "Value.Item1.Item5.Item1" in data.columns:
         # Extract the first value from the column (since it's consistent)
-        ppm_value_from_csv = data['Value.Item1.Item5.Item1'].iloc[0]
+        ppm_value_from_csv = data["Value.Item1.Item5.Item1"].iloc[0]
         ppm_values = {
-            'baseline': ppm_value_from_csv,
-            'similar': ppm_value_from_csv,
-            'different': ppm_value_from_csv,
-            'sleep': ppm_value_from_csv
+            "baseline": ppm_value_from_csv,
+            "similar": ppm_value_from_csv,
+            "different": ppm_value_from_csv,
+            "sleep": ppm_value_from_csv,
         }
     else:
         # Define PPM values and print messages for each trial type (hardcoded for now)
-        ppm_values = {
-            'baseline': 845,  
-            'similar': 845,  
-            'different': 320,  
-            'sleep': 845  
-        }
+        ppm_values = {"baseline": 845, "similar": 845, "different": 320, "sleep": 845}
 
     # Ensure the trial type is valid
     if trial_type not in ppm_values:
         raise ValueError(f'Trial type "{trial_type}" not recognised')
 
     # Extract timestamps and frame count (same for all conditions)
-    pointgrey_timestamps = data.loc[:, 'Value.Item1.Item1']
-    frame_count = data.loc[:, 'Value.Item1.Item2']
-    bonsai_timestamps = data.loc[:, 'Timestamp']
+    pointgrey_timestamps = data.loc[:, "Value.Item1.Item1"]
+    frame_count = data.loc[:, "Value.Item1.Item2"]
+    bonsai_timestamps = data.loc[:, "Timestamp"]
 
     # Extract X and Y coordinates for both tracked points (same for all conditions)
-    x1, y1, x2, y2 = [data[col] for col in ['Value.Item1.Item3.X', 'Value.Item1.Item3.Y', 
-                                            'Value.Item1.Item4.X', 'Value.Item1.Item4.Y']]
+    x1, y1, x2, y2 = [
+        data[col]
+        for col in [
+            "Value.Item1.Item3.X",
+            "Value.Item1.Item3.Y",
+            "Value.Item1.Item4.X",
+            "Value.Item1.Item4.Y",
+        ]
+    ]
 
     # Remove probable tracking errors based on speed threshold
     max_speed = 4.0  #  max speed in meters/second based on LM scanpix
@@ -184,7 +187,10 @@ def load_pos_bonsai_isa(path, ppm, trial_type):
         valid_pos = np.where(valid_indices[i])[0]
         prev_pos = valid_pos[0]
         for j in valid_pos[1:]:
-            curr_speed = np.sqrt((x.iloc[j] - x.iloc[prev_pos])**2 + (y.iloc[j] - y.iloc[prev_pos])**2) / (ppm * (j - prev_pos))
+            curr_speed = np.sqrt(
+                (x.iloc[j] - x.iloc[prev_pos]) ** 2
+                + (y.iloc[j] - y.iloc[prev_pos]) ** 2
+            ) / (ppm * (j - prev_pos))
             if curr_speed > max_speed:
                 x.iloc[j] = np.nan
                 y.iloc[j] = np.nan
@@ -192,7 +198,7 @@ def load_pos_bonsai_isa(path, ppm, trial_type):
                 prev_pos = j
 
     # Handle dodgy samples based on LED distance
-    led_distance = np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+    led_distance = np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
     max_distance = np.percentile(led_distance.dropna(), 99)  # 99th percentile
     unreliable_led = 0 if x1.isna().sum() > x2.isna().sum() else 1
     if unreliable_led == 0:
@@ -228,17 +234,17 @@ def load_pos_bonsai_isa(path, ppm, trial_type):
     mid_y = np.where(y2.notna() & ~y1.notna(), y2, mid_y)
 
     # Interpolate missing values if both points are missing
-    mid_x = pd.Series(mid_x).interpolate(method='linear', limit_direction='both')
-    mid_y = pd.Series(mid_y).interpolate(method='linear', limit_direction='both')
+    mid_x = pd.Series(mid_x).interpolate(method="linear", limit_direction="both")
+    mid_y = pd.Series(mid_y).interpolate(method="linear", limit_direction="both")
 
     # Store final position estimate (formatted for compatibility)
-    position = pd.DataFrame({'Mid.X': mid_x, 'Mid.Y': mid_y}).T
-    
+    position = pd.DataFrame({"Mid.X": mid_x, "Mid.Y": mid_y}).T
+
     # Assign PPM value based on trial type
     ppm = ppm_values[trial_type]
 
     # Print PPM message
-    print(f'Estimating PPM for {trial_type} at {ppm}')
+    print(f"Estimating PPM for {trial_type} at {ppm}")
 
     # Optional: Print position data for verification
     # print(position.head())
@@ -254,14 +260,11 @@ def load_pos_bonsai_isa(path, ppm, trial_type):
     time = pointgrey_timestamps.to_numpy()
     cycle1 = (time >> 12) & 0x1FFF
     cycle2 = (time >> 25) & 0x7F
-    time = cycle2 + cycle1 / 8000.
+    time = cycle2 + cycle1 / 8000.0
     cycles = np.insert(np.diff(time) < 0, 0, False)
     cycleindex = np.cumsum(cycles)
     pointgrey_timestamps = time + cycleindex * 128
     pointgrey_timestamps = pointgrey_timestamps - min(pointgrey_timestamps)
-
-    # Estimate sampling rate
-    sampling_rate = 1 / np.mean(np.diff(pointgrey_timestamps))
 
     print(pointgrey_timestamps)
 
@@ -271,16 +274,18 @@ def load_pos_bonsai_isa(path, ppm, trial_type):
     bonsai_timestamps = bonsai_timestamps.apply(lambda x: x.total_seconds())
     start_time = bonsai_timestamps.iloc[0]
 
-    position.columns = pointgrey_timestamps
+    # position.columns = bonsai_timestamps - bonsai_timestamps[0]
+    # Estimate sampling rate
+    sampling_rate = 1 / np.mean(np.diff(bonsai_timestamps))
 
     raw_pos_data = {
-        'pos': position,
-        'camera_timestamps': pointgrey_timestamps,
-        'bonsai_timestamps': bonsai_timestamps,
-        'sampling_rate': sampling_rate,
-        'pixels_per_metre': ppm,
-        'scaled_ppm': goal_ppm,
-        'start_time': start_time
+        "pos": position,
+        "camera_timestamps": pointgrey_timestamps,
+        "bonsai_timestamps": bonsai_timestamps,
+        "sampling_rate": sampling_rate,
+        "pixels_per_metre": ppm,
+        "scaled_ppm": goal_ppm,
+        "start_time": start_time,
     }
 
     return raw_pos_data
