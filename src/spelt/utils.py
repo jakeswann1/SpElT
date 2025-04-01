@@ -28,7 +28,9 @@ def gs_to_df(url: str):
     return df
 
 
-def find_all_sessions(sheet_path, data_path, raw_only=False, probe=None, animal=None):
+def find_all_sessions(
+    sheet_path, data_path, raw_only=False, probe=None, animal=None, area=None
+):
     """
     Function to find all sessions and session paths from Recording Master Spreadsheet
     """
@@ -42,6 +44,8 @@ def find_all_sessions(sheet_path, data_path, raw_only=False, probe=None, animal=
         sheet_inc = sheet_inc[sheet_inc["Animal"] == animal]
     if probe:
         sheet_inc = sheet_inc[sheet_inc["probe_type"] == probe]
+    if area:
+        sheet_inc = sheet_inc[sheet_inc["Areas"] == area]
     session_list = np.unique(sheet_inc["Session"].to_list())
     session_dict = {}
 

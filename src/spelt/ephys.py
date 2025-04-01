@@ -490,8 +490,8 @@ class ephys:  # noqa: N801
 
             elif self.tracking_types[trial_idx] in ["bonsai_roi", "bonsai_leds"]:
                 from .np2_utils.load_pos_bonsai import (
-                    load_pos_bonsai_jake,
                     load_pos_bonsai_isa,
+                    load_pos_bonsai_jake,
                 )
                 from .np2_utils.load_pos_dlc import load_pos_dlc
                 from .np2_utils.postprocess_pos_data_np2 import (

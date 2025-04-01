@@ -24,7 +24,8 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "pynapple",
-]
+    "pywavelets"
+    ]
 
 [project.urls]
 "Bug Reports" = "https://github.com/jakeswann1/SpElT/issues"
