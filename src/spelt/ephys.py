@@ -222,12 +222,13 @@ class ephys:  # noqa: N801
             self._load_extremum_channels(unit_ids) if load_channels else None
         )
 
-    def load_single_unit_spike_trains(self, unit_ids=None):
+    def load_single_unit_spike_trains(self, unit_ids=None, sparse=True):
         """
         Returns the spike trains from all trials for "good" units
         Format is {trial: {unit: spike_train}}
         """
-        self._load_ephys(keep_good_only=True)
+        if self.analyzer is None:
+            self._load_ephys(keep_good_only=True, sparse=sparse)
 
         unit_spikes = {}
 

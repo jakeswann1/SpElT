@@ -24,8 +24,8 @@ def filter_cells_by_property(
         Range of depth in micrometers as (min, max)
     fr_range : Optional[Tuple[float, float]], optional
         Range of firing rate in Hz as (min, max)
-    spike_width_threshold : Optional[float], optional
-        Minimum spike width in SECONDS (so 500 microseconds = 0.0005)
+    spike_width_range_us : Optional[Tuple[float, float]], optional
+        Range of spike width in microseconds as (min, max)
     burst_params : Optional[Tuple[float, float, float]], optional
         Bursting parameters as (window_ms, bin_ms, threshold_ms)
     include_spike_width : bool, optional
