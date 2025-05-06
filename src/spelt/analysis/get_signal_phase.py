@@ -1,5 +1,3 @@
-from typing import Union
-
 import numpy as np
 from scipy.signal import filtfilt, firwin, hilbert
 
@@ -16,6 +14,9 @@ def get_signal_phase(
     Efficiently calculates the signal phase timeseries from an LFP signal.
     Vectorized implementation that handles both 1D and 2D inputs.
     Supports channel-specific peak frequencies.
+
+    Pi radians is the signal trough. 0/2pi radians is the signal peak.
+    pi/2 is the descending zero crossing, and 3pi/2 is the ascending zero crossing.
 
     Parameters:
     -----------
@@ -171,7 +172,7 @@ def get_spike_phase(
     lfp: np.ndarray,
     spike_times: np.ndarray,
     sampling_rate: float,
-    peak_freq: Union[float, np.ndarray],
+    peak_freq: float | np.ndarray,
     clip_value: float = 0,
     filt_half_bandwidth: float = 2,
     power_thresh: float = 5,
@@ -230,3 +231,41 @@ def get_spike_phase(
         spike_phases[valid_mask] = selected_phase[valid_indices]
 
     return spike_phases
+
+
+## Sample code to display sine wave - phase relationship
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from scipy.signal import find_peaks
+# from spelt.analysis.get_signal_phase import get_signal_phase
+
+# # Generate synthetic sine signal
+# fs = 1000  # Hz
+# t = np.linspace(0, 1, fs, endpoint=False)
+# freq = 8  # Hz
+# signal = np.sin(2 * np.pi * freq * t)
+
+# # Call the function
+# signal_phase, _ = get_signal_phase(signal, sampling_rate=fs, peak_freq=freq)
+
+# # Find peak and trough indices
+# peaks, _ = find_peaks(signal)
+# troughs, _ = find_peaks(-signal)
+
+# # Plotting
+# plt.figure(figsize=(10, 4))
+# plt.plot(t, signal, label="Signal")
+# plt.plot(t, signal_phase, label="Phase (cycles)", alpha=0.7)
+# plt.scatter(t[peaks], signal[peaks], color="red", label="Peaks", zorder=5)
+# plt.scatter(t[troughs], signal[troughs], color="blue", label="Troughs", zorder=5)
+# plt.xlabel("Time (s)")
+# plt.ylabel("Amplitude / Phase (cycles)")
+# plt.title("Signal and Instantaneous Phase")
+# plt.legend()
+# plt.grid(True)
+# plt.tight_layout()
+# plt.show()
+
+# # Print average phase at peaks and troughs
+# print(f"Average phase at peaks: {np.mean(signal_phase[peaks]):.2f} rad")
+# print(f"Average phase at troughs: {np.mean(signal_phase[troughs]):.2f} rad")
