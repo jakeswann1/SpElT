@@ -134,25 +134,77 @@ class EphysMat:
         else:
             return [self._ndarray_to_nested_lists(arr[i]) for i in range(arr.shape[0])]
 
-    def get_data(self, key: str) -> Any:
+    def get_data(self, keys: str | list[str]) -> Any:
         """
-        Extract data for a given key from the MATLAB .mat file,
+        Extract data for a given key or list of keys from the MATLAB .mat file,
         preserving the original nested structure
 
         Args:
-            key: The key to extract data for
+            keys: A single key (str) or a list of keys to extract data for
 
         Returns:
-            The extracted data, maintaining the original structure
+            If keys is a string: The extracted data for that key
+            If keys is a list: A dictionary mapping each key to its extracted data
 
         Raises:
-            KeyError: If the key is not found in the file
+            KeyError: If any key is not found in the file
         """
-        if key not in self.mat_file:
-            raise KeyError(f"Key '{key}' not found in the .mat file")
+        # Handle single key
+        if isinstance(keys, str):
+            if keys not in self.mat_file:
+                raise KeyError(f"Key '{keys}' not found in the .mat file")
 
-        # Get the dataset or group
-        obj = self.mat_file[key]
+            obj = self.mat_file[keys]
+            return self._extract_data_from_object(obj)
 
-        # Extract data while preserving structure
-        return self._extract_data_from_object(obj)
+        # Handle list of keys
+        elif isinstance(keys, list):
+            result = {}
+            missing_keys = [key for key in keys if key not in self.mat_file]
+
+            if missing_keys:
+                if len(missing_keys) == 1:
+                    raise KeyError(
+                        f"Key '{missing_keys[0]}' not found in the .mat file"
+                    )
+                else:
+                    raise KeyError(f"Keys {missing_keys} not found in the .mat file")
+
+            for key in keys:
+                obj = self.mat_file[key]
+                result[key] = self._extract_data_from_object(obj)
+
+            return result
+
+        else:
+            raise TypeError("'keys' must be a string or a list of strings")
+
+    def get_all_data(self) -> dict[str, Any]:
+        """
+        Extract data for all keys in the MATLAB .mat file
+
+        Returns:
+            A dictionary mapping each key in the .mat file to its extracted data
+
+        Note:
+            This method may be slow and memory-intensive for large .mat files,
+            as it loads all data into memory
+        """
+        # Get all top-level keys in the .mat file
+        all_keys = list(self.mat_file.keys())
+
+        # Handle empty file case
+        if not all_keys:
+            return {}
+
+        # Use existing get_data method to load all keys
+        return self.get_data(all_keys)
+
+    def list_keys(self) -> list[str]:
+        """
+        List all top-level keys available in the .mat file
+
+        Returns:
+            A list of all keys in the .mat file
+        """
+        return list(self.mat_file.keys())
