@@ -208,3 +208,134 @@ class EphysMat:
             A list of all keys in the .mat file
         """
         return list(self.mat_file.keys())
+
+    def get_data_at_index(
+        self, key: str, indices: list[int] | int | tuple[int, ...] | slice
+    ) -> Any:
+        """
+        Extract data for a specific key at given indices only.
+
+        Args:
+            key: The key to extract data for
+            indices: An index, list of indices, tuple of indices, or slice to extract
+                For 1D arrays: single index or slice
+                For multi-dimensional: tuple of indices for each dimension
+
+        Returns:
+            The extracted data at the specified indices
+
+        Raises:
+            KeyError: If the key is not found in the file
+            IndexError: If the indices are out of bounds
+            TypeError: If the indices are not compatible with the data structure
+        """
+        if key not in self.mat_file:
+            raise KeyError(f"Key '{key}' not found in the .mat file")
+
+        obj = self.mat_file[key]
+
+        # Handle direct datasets (non-object type)
+        if isinstance(obj, h5py.Dataset) and obj.dtype.kind != "O":
+            # For regular numeric datasets, return slice directly
+            try:
+                if isinstance(indices, (int, slice)):
+                    return np.array(obj[indices])
+                else:
+                    return np.array(obj[indices])
+            except (IndexError, TypeError) as e:
+                raise type(e)(
+                    f"Invalid indices {indices} for dataset shape {obj.shape}: {e}"
+                ) from obj
+
+        # Handle object datasets (typically cell arrays)
+        elif isinstance(obj, h5py.Dataset) and obj.dtype.kind == "O":
+            try:
+                # Get only the references we need
+                if isinstance(indices, int):
+                    # Single index for 1D array
+                    if obj.ndim == 1:
+                        return self._resolve_reference(obj[indices])
+                    # Single index for column vector
+                    elif obj.ndim == 2 and obj.shape[1] == 1:
+                        return self._resolve_reference(obj[indices, 0])
+                    # Single index for row vector
+                    elif obj.ndim == 2 and obj.shape[0] == 1:
+                        return self._resolve_reference(obj[0, indices])
+                    else:
+                        raise TypeError(
+                            f"""
+                            Single integer index not valid for
+                            {obj.ndim}D array of shape {obj.shape}
+                            """
+                        )
+
+                elif isinstance(indices, tuple) and all(
+                    isinstance(i, int) for i in indices
+                ):
+                    # Tuple of indices for each dimension
+                    if len(indices) != obj.ndim:
+                        raise TypeError(
+                            f"""Expected {obj.ndim} indices for
+                            {obj.ndim}D array, got {len(indices)}"""
+                        )
+                    return self._resolve_reference(obj[indices])
+
+                elif isinstance(indices, slice):
+                    # Slice for 1D array
+                    if obj.ndim == 1:
+                        return [
+                            self._resolve_reference(obj[i])
+                            for i in range(*indices.indices(obj.shape[0]))
+                        ]
+                    # Slice for column vector
+                    elif obj.ndim == 2 and obj.shape[1] == 1:
+                        return [
+                            self._resolve_reference(obj[i, 0])
+                            for i in range(*indices.indices(obj.shape[0]))
+                        ]
+                    # Slice for row vector
+                    elif obj.ndim == 2 and obj.shape[0] == 1:
+                        return [
+                            self._resolve_reference(obj[0, i])
+                            for i in range(*indices.indices(obj.shape[1]))
+                        ]
+                    else:
+                        raise TypeError(
+                            f"""Slice not supported for {obj.ndim}D
+                            array of shape {obj.shape}"""
+                        )
+
+                elif isinstance(indices, list):
+                    # List of indices for 1D array
+                    if obj.ndim == 1:
+                        return [self._resolve_reference(obj[i]) for i in indices]
+                    # List of indices for column vector
+                    elif obj.ndim == 2 and obj.shape[1] == 1:
+                        return [self._resolve_reference(obj[i, 0]) for i in indices]
+                    # List of indices for row vector
+                    elif obj.ndim == 2 and obj.shape[0] == 1:
+                        return [self._resolve_reference(obj[0, i]) for i in indices]
+                    else:
+                        raise TypeError(
+                            f"""List indices not supported for
+                            {obj.ndim}D array of shape {obj.shape}"""
+                        )
+
+                else:
+                    raise TypeError(f"Unsupported index type: {type(indices)}")
+
+            except (IndexError, TypeError) as e:
+                raise type(e)(
+                    f"Invalid indices {indices} for dataset of shape {obj.shape}: {e}"
+                ) from obj
+
+        # Handle groups (structs in MATLAB)
+        elif isinstance(obj, h5py.Group):
+            raise TypeError(
+                f"""Key '{key}' refers to a group/struct, not a dataset.
+                Use get_data() instead."""
+            )
+
+        else:
+            # Fallback for other types
+            raise TypeError(f"Unsupported object type: {type(obj)}")
