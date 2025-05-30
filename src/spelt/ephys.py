@@ -408,7 +408,6 @@ class ephys:  # noqa: N801
             print("No trial list specified, loading position data for all trials")
 
         for trial_idx, trial_iterator in enumerate(trial_list):
-
             # Check if position data is already loaded for session:
             if not reload_flag and self.pos_data[trial_iterator] is not None:
                 print(f"Position data already loaded for trial {trial_iterator}")
@@ -417,7 +416,10 @@ class ephys:  # noqa: N801
             # Get path of trial to load
             path = self.recording_path / self.trial_list[trial_iterator]
             (
-                print(f"Loading position data for {self.trial_list[trial_iterator]}")
+                print(
+                    f"""Loading position data for {self.trial_list[trial_iterator]}
+                        from path: {path}"""
+                )
                 if output_flag
                 else None
             )
@@ -529,9 +531,43 @@ class ephys:  # noqa: N801
                         raw_pos_data, self.max_speed, self.smoothing_window_size
                     )
 
-                    xy_pos.columns = ttl_times[: len(xy_pos.columns)]
+                    pos_sampling_rate = 1 / np.mean(np.diff(ttl_times))
 
-                    pos_sampling_rate = 1 / np.mean(np.diff(xy_pos.columns))
+                    if len(xy_pos.columns) == len(ttl_times):
+                        xy_pos.columns = ttl_times
+                    elif len(xy_pos.columns) < len(ttl_times):
+                        xy_pos.columns = ttl_times[: len(xy_pos.columns)]
+                        print(
+                            f"""
+                            WARNING: Bonsai position data has 
+                            more TTL pulses than position samples times.
+                            Position samples: {len(xy_pos.columns)} 
+                            vs TTL times: {len(ttl_times)}
+                            Removing {len(ttl_times) - len(xy_pos.columns)} 
+                            TTL pulses from the end of TTL times.
+                            Data may be up to
+                            {(len(ttl_times) - len(xy_pos.columns))/pos_sampling_rate}
+                             seconds out of sync.
+                            """
+                        )
+                    elif len(xy_pos.columns) > len(ttl_times):
+                        print(
+                            f"""
+                            WARNING: Bonsai position data has 
+                            more position samples than TTL pulses.
+                            Position samples: {len(xy_pos.columns)} 
+                            vs TTL times: {len(ttl_times)}
+                            Removing {len(xy_pos.columns) - len(ttl_times)} 
+                            position samples from the end of position data.
+                            Data may be up to 
+                            {(len(xy_pos.columns) - len(ttl_times))/pos_sampling_rate}
+                             seconds out of sync.
+                            """
+                        )
+                        xy_pos = xy_pos.iloc[:, : len(ttl_times)]
+                        xy_pos.columns = ttl_times
+                        speed = speed[: len(ttl_times)]
+                        direction_disp = direction_disp[: len(ttl_times)]
 
                 # Isa Bonsai Format
                 elif (

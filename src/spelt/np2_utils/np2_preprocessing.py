@@ -1,8 +1,9 @@
 from pathlib import Path
+
 import spikeinterface as si
-import spikeinterface.sorters as ss
-import spikeinterface.preprocessing as spre
 import spikeinterface.curation as scur
+import spikeinterface.preprocessing as spre
+import spikeinterface.sorters as ss
 
 
 def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
@@ -13,14 +14,21 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
         try:
             sorting = si.load_extractor(sorting_path / "sort")
             print(f"Sorting loaded from file {sorting_path}\n")
-        except ValueError:
+        except ValueError as e:
             print(
                 f"Sorting at {sorting_path} failed to load - try deleting the folder and rerun"
             )
-            raise ValueError
+            raise ValueError from e
     else:
         # Account for phase shift in NP2 acquisition
-        recording = spre.phase_shift(recording)
+        try:
+            recording = spre.phase_shift(recording)
+        except AssertionError as e:
+            print(
+                f"""Phase shift failed for {recording_name} - 
+                this is likely because the recording is already phase shifted. 
+                Error: {e}"""
+            )
         # Sort
         sorting = ss.run_sorter(
             "kilosort4",
@@ -47,13 +55,5 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
 
         sorting.save(folder=sorting_path / "sort")
         print(f"Sorting saved to {sorting_path}/sort\n")
-
-        # #Edit params.py file to point to new .dat file in the first line
-        # with open(f'{sorting_path}/sorter_output/params.py', 'r+') as file:
-        #     lines = file.readlines()
-        #     file.seek(0)
-        #     file.write(f'dat_path = "{base_folder}/concat_{area}.dat"\n')
-        #     file.writelines(lines[1:])
-        #     file.truncate()
 
     return sorting
