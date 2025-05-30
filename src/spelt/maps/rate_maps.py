@@ -431,7 +431,7 @@ def bin_pos_data_dlc(
     return pos_bin_idx, pos_sample_times, pos_sampling_rate
 
 
-def make_rate_maps_from_obj(obj):
+def make_rate_maps_from_obj(obj, bin_size=2.5):
     rate_maps = {}
     pos_map = {}
     max_rates = {}
@@ -452,7 +452,8 @@ def make_rate_maps_from_obj(obj):
         # Load unloaded position and spike data if any
         try:
             obj.load_pos(trial, reload_flag=False)
-        except:
+        except Exception as e:
+            print(f"Error loading position data for trial {trial}: {e}")
             continue
 
         current_trial_spikes = spike_data[trial]
@@ -473,13 +474,13 @@ def make_rate_maps_from_obj(obj):
         if obj.recording_type == "nexus":
             pos_bin_idx[trial], pos_sample_times[trial], pos_sampling_rate[trial] = (
                 bin_pos_data_axona(
-                    pos_data=obj.pos_data[trial], bin_length=2.5, speed_threshold=0
+                    pos_data=obj.pos_data[trial], bin_length=bin_size, speed_threshold=0
                 )
             )
         elif obj.recording_type == "NP2_openephys":
             pos_bin_idx[trial], pos_sample_times[trial], pos_sampling_rate[trial] = (
                 bin_pos_data_dlc(
-                    pos_data=obj.pos_data[trial], bin_length=2.5, speed_threshold=0
+                    pos_data=obj.pos_data[trial], bin_length=bin_size, speed_threshold=0
                 )
             )
         else:
