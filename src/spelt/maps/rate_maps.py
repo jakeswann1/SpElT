@@ -207,6 +207,8 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
 
         ax_idx += 1
 
+    return fig, axes
+
 
 def _build_session_title(
     session_key: str,

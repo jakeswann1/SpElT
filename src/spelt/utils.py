@@ -179,7 +179,8 @@ def compute_extensions_lazy(analyzer: si.SortingAnalyzer, extension_list: list[s
         The updated sorting analyzer object with computed extensions.
     """
     for ext in extension_list:
-        if not analyzer.has_extension(ext):
+        if analyzer.has_extension(ext):
             print(f"Extension {ext} already computed, skipping computation.")
+        else:
             analyzer.compute(ext)
     return analyzer

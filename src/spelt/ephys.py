@@ -505,11 +505,10 @@ class ephys:  # noqa: N801
                 # Load TTL sync data
                 if self.sync_data[trial_iterator] is None:
                     self.load_ttl(trial_iterator, output_flag=False)
-                # Get TTL times and drop the first pulse
+                # Get TTL times
                 try:
                     ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"][2:]
                     ttl_freq = 1 / np.mean(np.diff(ttl_times))
-                    ttl_times = ttl_times - ttl_times[0]
                 except TypeError:
                     ttl_times = None
                     ttl_freq = None

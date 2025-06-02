@@ -35,7 +35,6 @@ def plot_unit_summaries(
             sw.plot_unit_summary(
                 analyzer,
                 unit_id,
-                subwidget_kwargs={"amplitudes": {"segment_index": segments}},
             )
         else:
             sw.plot_unit_summary(
