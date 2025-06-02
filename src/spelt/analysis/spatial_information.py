@@ -3,15 +3,17 @@ import numpy as np
 
 def spatial_info(rate_maps, pos_map):
     """
-    Compute spatial information (Skaggs information) of place fields for 2D rate maps, accommodating
-    for either a single shared position map or individual position maps for each rate map.
+    Compute spatial information (Skaggs information) of place fields for 2D rate maps,
+    accommodating for either a single shared position map or individual position maps
+    for each rate map.
 
     Parameters:
-    rate_maps (dict, list, or ndarray): A dictionary with cell IDs as keys and 2D rate maps as values,
-        or a list or 3D array of 2D rate maps. Each rate map represents the firing rate of a neuron
-        at different locations in a 2D space.
-    pos_map (dict, list, ndarray, or 2D ndarray): A single 2D position map to be applied to each rate map,
-        or a structure (dict, list, 3D ndarray) with a position map for each rate map.
+    rate_maps (dict, list, or ndarray): A dictionary with cell IDs as keys and 2D rate
+        maps as values, or a list or 3D array of 2D rate maps. Each rate map represents
+        the firing rate of a neuron at different locations in a 2D space.
+    pos_map (dict, list, ndarray, or 2D ndarray): A single 2D position map to be applied
+        to each rate map, or a structure (dict, list, 3D ndarray) with a position map
+        for each rate map.
 
     Returns:
     bits_per_spike (dict or ndarray): The spatial information per spike, in bits.

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -65,8 +67,6 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
 
     # Read position data from csv file
     data = pd.read_csv(path)
-    # Drop first row as it may be a dodgy ttl pulse
-    data = data.iloc[1:]
 
     if trial_type == "open-field":
         pointgrey_timestamps = data.loc[:, "Value.Item1"]
@@ -74,7 +74,7 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
         position = data.loc[:, ["Value.Item3.X", "Value.Item3.Y"]].T
         bonsai_timestamps = data.loc[:, "Timestamp"]
         ppm = 500  # TODO: make dynamic from sheet
-        print("Estimating PPM for open-field at 800")
+        print("Estimating PPM for open-field at 500")
 
     elif trial_type == "t-maze":
         frame_count = data.loc[:, "Value.Item1"]

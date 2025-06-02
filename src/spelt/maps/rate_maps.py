@@ -182,51 +182,70 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
 
     # Plot rate maps for each session
     for session_key, sub_dict in rate_maps_dict.items():
-        if cluster_id in sub_dict:
-            try:
-                rate_map = sub_dict[cluster_id]
-                axes[ax_idx].imshow(rate_map, cmap="jet", origin="lower", vmin=0)
+        if cluster_id not in sub_dict:
+            continue
 
-                # Build the title dynamically
-                title_parts = [f"Trial {session_key}"]
-                if (
-                    session_key in max_rates_dict
-                    and cluster_id in max_rates_dict[session_key]
-                ):
-                    title_parts.append(
-                        f"Max FR: {max_rates_dict[session_key][cluster_id]:.2f} Hz"
-                    )
-                if (
-                    session_key in mean_rates_dict
-                    and cluster_id in mean_rates_dict[session_key]
-                ):
-                    title_parts.append(
-                        f"Mean FR: {mean_rates_dict[session_key][cluster_id]:.2f} Hz"
-                    )
-                if (
-                    session_key in spatial_info_dict
-                    and cluster_id in spatial_info_dict[session_key]
-                ):
-                    title_parts.append(
-                        f"Spatial Info: {spatial_info_dict[session_key][cluster_id]:.2f}"  # noqa: E501
-                    )
-                if (
-                    session_key in spatial_significance_dict
-                    and cluster_id in spatial_significance_dict[session_key]
-                ):
-                    title_parts.append(
-                        f"P = {spatial_significance_dict[session_key][cluster_id]}"
-                    )
+        try:
+            rate_map = sub_dict[cluster_id]
+            axes[ax_idx].imshow(rate_map, cmap="jet", origin="lower", vmin=0)
 
-                title = ". ".join(title_parts)
-                axes[ax_idx].set_title(title)
-                axes[
-                    ax_idx
-                ].invert_yaxis()  # Needed to match rate maps to theta phase plots
-                axes[ax_idx].axis("off")
-            except KeyError:
-                pass
-            ax_idx += 1
+            title = _build_session_title(
+                session_key,
+                cluster_id,
+                max_rates_dict,
+                mean_rates_dict,
+                spatial_info_dict,
+                spatial_significance_dict,
+            )
+
+            axes[ax_idx].set_title(title)
+            axes[ax_idx].invert_yaxis()  # Match rate maps to theta phase plots
+            axes[ax_idx].axis("off")
+
+        except KeyError:
+            pass
+
+        ax_idx += 1
+
+
+def _build_session_title(
+    session_key: str,
+    cluster_id: str | int,
+    max_rates_dict: dict[str, dict],
+    mean_rates_dict: dict[str, dict],
+    spatial_info_dict: dict[str, dict],
+    spatial_significance_dict: dict[str, dict],
+) -> str:
+    """Build title string with available metrics for a session."""
+    title_parts = [f"Trial {session_key}"]
+
+    # Add max firing rate if available
+    if session_key in max_rates_dict and cluster_id in max_rates_dict[session_key]:
+        max_rate = max_rates_dict[session_key][cluster_id]
+        title_parts.append(f"Max FR: {max_rate:.2f} Hz")
+
+    # Add mean firing rate if available
+    if session_key in mean_rates_dict and cluster_id in mean_rates_dict[session_key]:
+        mean_rate = mean_rates_dict[session_key][cluster_id]
+        title_parts.append(f"Mean FR: {mean_rate:.2f} Hz")
+
+    # Add spatial information if available
+    if (
+        session_key in spatial_info_dict
+        and cluster_id in spatial_info_dict[session_key]
+    ):
+        spatial_info = spatial_info_dict[session_key][cluster_id]
+        title_parts.append(f"Spatial Info: {spatial_info:.2f}")
+
+    # Add spatial significance if available
+    if (
+        session_key in spatial_significance_dict
+        and cluster_id in spatial_significance_dict[session_key]
+    ):
+        p_value = spatial_significance_dict[session_key][cluster_id]
+        title_parts.append(f"P = {p_value}")
+
+    return ". ".join(title_parts)
 
 
 def speed_filter_spikes(

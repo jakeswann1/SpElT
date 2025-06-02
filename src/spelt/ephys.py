@@ -520,11 +520,22 @@ class ephys:  # noqa: N801
                     self.tracking_types[trial_idx] == "bonsai_roi"
                     and path.with_suffix(".csv").exists()
                 ):
-                    print("Loading raw Bonsai position data") if output_flag else None
-                    trial_type = self.session["Trial Type"].iloc[trial_iterator]
-                    raw_pos_data = load_pos_bonsai_jake(
-                        path.with_suffix(".csv"), 400, trial_type
+                    (
+                        print(f"Loading raw Bonsai position data frop path {path}")
+                        if output_flag
+                        else None
                     )
+                    trial_type = self.session["Trial Type"].iloc[trial_iterator]
+                    try:
+                        raw_pos_data = load_pos_bonsai_jake(
+                            path.with_suffix(".csv"), 400, trial_type
+                        )
+                        print("Loaded Bonsai position data from csv file")
+                    except FileNotFoundError:
+                        path = path.with_suffix(".csv").replace("t-maze", "T-maze")
+                        print(f"looking for Bonsai file with name {path}")
+
+                        raw_pos_data = load_pos_bonsai_jake(path, 400, trial_type)
                     # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
 
                     xy_pos, speed, direction_disp = postprocess_bonsai_jake(
@@ -539,11 +550,11 @@ class ephys:  # noqa: N801
                         xy_pos.columns = ttl_times[: len(xy_pos.columns)]
                         print(
                             f"""
-                            WARNING: Bonsai position data has 
+                            WARNING: Bonsai position data has
                             more TTL pulses than position samples times.
-                            Position samples: {len(xy_pos.columns)} 
+                            Position samples: {len(xy_pos.columns)}
                             vs TTL times: {len(ttl_times)}
-                            Removing {len(ttl_times) - len(xy_pos.columns)} 
+                            Removing {len(ttl_times) - len(xy_pos.columns)}
                             TTL pulses from the end of TTL times.
                             Data may be up to
                             {(len(ttl_times) - len(xy_pos.columns))/pos_sampling_rate}
@@ -553,13 +564,13 @@ class ephys:  # noqa: N801
                     elif len(xy_pos.columns) > len(ttl_times):
                         print(
                             f"""
-                            WARNING: Bonsai position data has 
+                            WARNING: Bonsai position data has
                             more position samples than TTL pulses.
-                            Position samples: {len(xy_pos.columns)} 
+                            Position samples: {len(xy_pos.columns)}
                             vs TTL times: {len(ttl_times)}
-                            Removing {len(xy_pos.columns) - len(ttl_times)} 
+                            Removing {len(xy_pos.columns) - len(ttl_times)}
                             position samples from the end of position data.
-                            Data may be up to 
+                            Data may be up to
                             {(len(xy_pos.columns) - len(ttl_times))/pos_sampling_rate}
                              seconds out of sync.
                             """
@@ -615,9 +626,9 @@ class ephys:  # noqa: N801
                     bonsai_timestamps = raw_pos_data["bonsai_timestamps"]
                     camera_timestamps = raw_pos_data["camera_timestamps"]
 
-                else:
-                    print(f"No position data found for trial {trial_iterator}")
-                    raw_pos_data = None
+                # else:
+                #     print(f"No position data found for trial {trial_iterator}")
+                #     raw_pos_data = None
 
             # Populate processed pos data
             self.pos_data[trial_iterator] = {
