@@ -360,9 +360,6 @@ class ephys:  # noqa: N801
                 else None
             )
 
-        if self.analyzer is None:
-            self._load_ephys()
-
         for trial_iterator in trial_iterators:
             # Get path of trial to load
             path = self.recording_path / self.trial_list[trial_iterator]
