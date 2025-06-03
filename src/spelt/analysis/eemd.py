@@ -136,7 +136,7 @@ def plot_emd(
     time_window: tuple[float, float] | None = None,
     max_imfs_display: int = 5,
     freq_range: tuple[float, float] = (0, 100),
-    figsize: tuple[float, float] = (15, 12),
+    figsize: tuple[float, float] = (18, 14),
 ) -> tuple[plt.Figure, np.ndarray]:
     """
     Create comprehensive EMD analysis plots.
@@ -183,8 +183,8 @@ def plot_emd(
         t_display = t[time_slice]
         display_samples = len(t_display)
 
-    # Create figure
-    fig, axes = plt.subplots(3, 2, figsize=figsize)
+    # Create figure with 7 subplots
+    fig, axes = plt.subplots(3, 3, figsize=figsize)
     axes = axes.flatten()
 
     # Plot 1: Original signals
@@ -320,8 +320,143 @@ def plot_emd(
         stats_text,
         transform=ax6.transAxes,
         verticalalignment="top",
-        bbox={"boxstyle": "round", "facecolor": "wheat"},
+        bbox=dict(boxstyle="round", facecolor="wheat"),
     )
+
+    # Plot 7: Power Spectrum of IMFs (normalized and non-normalized)
+    ax7 = axes[6]
+    freqs = np.fft.fftfreq(n_samples, 1 / fs)
+    freq_mask = (freqs >= freq_range[0]) & (freqs <= freq_range[1])
+    freqs_plot = freqs[freq_mask]
+
+    # Calculate power spectra for each IMF
+    n_imfs_spectrum = min(max_imfs_display, n_imfs - 1)  # Exclude residue
+    colors = plt.cm.tab10(np.linspace(0, 1, n_imfs_spectrum))
+
+    # Plot normalized (z-scored) spectra
+    for i in range(n_imfs_spectrum):
+        # Calculate power spectrum
+        fft_imf = np.fft.fft(imfs[i, :, channel])
+        power_spectrum = np.abs(fft_imf[freq_mask]) ** 2
+
+        # Z-score normalization
+        power_mean = np.mean(power_spectrum)
+        power_std = np.std(power_spectrum)
+        if power_std > 0:
+            power_z = (power_spectrum - power_mean) / power_std
+        else:
+            power_z = np.zeros_like(power_spectrum)
+
+        # Plot
+        ax7.plot(
+            freqs_plot,
+            power_z,
+            color=colors[i],
+            label=f"IMF {i+1}",
+            linewidth=1.5,
+            alpha=0.8,
+        )
+
+        # Find and annotate peak frequency
+        if len(power_z) > 0:
+            peak_idx = np.argmax(power_z)
+            peak_freq = freqs_plot[peak_idx]
+            peak_power = power_z[peak_idx]
+
+            # Annotate peak frequency
+            ax7.annotate(
+                f"{peak_freq:.1f} Hz",
+                xy=(peak_freq, peak_power),
+                xytext=(peak_freq + freq_range[1] * 0.05, peak_power + 0.5),
+                fontsize=9,
+                ha="left",
+                arrowprops=dict(arrowstyle="->", color=colors[i], alpha=0.7),
+            )
+
+    ax7.set_title(f"Z-scored Power Spectra (Normalized) - Channel {channel+1}")
+    ax7.set_xlabel("Frequency (Hz)")
+    ax7.set_ylabel("Z-scored Power")
+    ax7.grid(True, alpha=0.3)
+    ax7.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+    ax7.set_xlim(freq_range)
+
+    # Plot 8: Raw Power Spectra (Non-normalized)
+    ax8 = axes[7]
+
+    # Plot raw (non-normalized) spectra on log scale
+    for i in range(n_imfs_spectrum):
+        # Calculate power spectrum
+        fft_imf = np.fft.fft(imfs[i, :, channel])
+        power_spectrum = np.abs(fft_imf[freq_mask]) ** 2
+
+        # Plot on log scale
+        ax8.semilogy(
+            freqs_plot,
+            power_spectrum,
+            color=colors[i],
+            label=f"IMF {i+1}",
+            linewidth=1.5,
+            alpha=0.8,
+        )
+
+        # Find and annotate peak frequency
+        if len(power_spectrum) > 0:
+            peak_idx = np.argmax(power_spectrum)
+            peak_freq = freqs_plot[peak_idx]
+            peak_power = power_spectrum[peak_idx]
+
+            # Annotate peak frequency
+            ax8.annotate(
+                f"{peak_freq:.1f} Hz",
+                xy=(peak_freq, peak_power),
+                xytext=(peak_freq + freq_range[1] * 0.05, peak_power * 2),
+                fontsize=9,
+                ha="left",
+                arrowprops=dict(arrowstyle="->", color=colors[i], alpha=0.7),
+            )
+
+    ax8.set_title(f"Raw Power Spectra (Non-normalized) - Channel {channel+1}")
+    ax8.set_xlabel("Frequency (Hz)")
+    ax8.set_ylabel("Power (log scale)")
+    ax8.grid(True, alpha=0.3)
+    ax8.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
+    ax8.set_xlim(freq_range)
+
+    # Plot 9: IMF Power Distribution (moved from position 8)
+    ax9 = axes[8]
+    imf_powers = []
+    imf_labels = []
+
+    for i in range(min(max_imfs_display, n_imfs)):
+        power = np.var(imfs[i, :, channel])
+        imf_powers.append(power)
+        if i == n_imfs - 1:
+            imf_labels.append("Residue")
+        else:
+            imf_labels.append(f"IMF {i+1}")
+
+    bars = ax9.bar(
+        range(len(imf_powers)), imf_powers, alpha=0.7, color=colors[: len(imf_powers)]
+    )
+    ax9.set_title(f"Power Distribution Across IMFs - Channel {channel+1}")
+    ax9.set_xlabel("Component")
+    ax9.set_ylabel("Power (Variance)")
+    ax9.set_xticks(range(len(imf_labels)))
+    ax9.set_xticklabels(imf_labels, rotation=45)
+    ax9.grid(True, alpha=0.3)
+
+    # Add percentage labels on bars
+    total_power = sum(imf_powers)
+    for i, (bar, power) in enumerate(zip(bars, imf_powers)):
+        percentage = 100 * power / total_power
+        ax9.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + max(imf_powers) * 0.01,
+            f"{percentage:.1f}%",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+        )
 
     plt.tight_layout()
 
@@ -332,6 +467,12 @@ def plot_emd(
     print(f"Reconstruction MSE: {mse:.2e}")
     print(f"Signal-to-Noise Ratio: {snr:.1f} dB")
     print(f"Max absolute error: {max_error:.3f}")
+
+    # Print power distribution
+    print(f"\nPower Distribution:")
+    for i, (label, power) in enumerate(zip(imf_labels, imf_powers)):
+        percentage = 100 * power / total_power
+        print(f"  {label}: {percentage:.1f}% of total power")
 
     return fig, axes
 
