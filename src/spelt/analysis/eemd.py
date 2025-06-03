@@ -2,6 +2,7 @@ import multiprocessing as mp
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.signal import welch
 
 import spelt.analysis.emdlib.emdlib as emd
 
@@ -126,6 +127,39 @@ def calc_instantaneous_info(
     return inst_freq, inst_amp, inst_phase
 
 
+def calculate_welch_psd(
+    signal: np.ndarray, fs: float, nperseg: int | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Calculate smooth power spectral density using Welch's method.
+
+    Args:
+        signal: 1D signal array
+        fs: Sampling frequency
+        nperseg: Length of each segment (None for auto)
+
+    Returns:
+        freqs, psd: Frequency array and power spectral density
+    """
+    if nperseg is None:
+        # Good default: segment length that provides smooth results
+        nperseg = min(len(signal) // 8, 2048)
+        # Ensure minimum segment length
+        nperseg = max(nperseg, 256)
+
+    freqs, psd = welch(
+        signal,
+        fs=fs,
+        nperseg=nperseg,
+        noverlap=nperseg // 2,  # 50% overlap
+        window="hann",  # Hanning window
+        detrend="linear",  # Remove linear trends
+        scaling="density",  # Power spectral density
+    )
+
+    return freqs, psd
+
+
 def plot_emd(
     signal: np.ndarray,
     imfs: np.ndarray,
@@ -137,9 +171,10 @@ def plot_emd(
     max_imfs_display: int = 5,
     freq_range: tuple[float, float] = (0, 100),
     figsize: tuple[float, float] = (18, 14),
+    welch_nperseg: int | None = None,
 ) -> tuple[plt.Figure, np.ndarray]:
     """
-    Create comprehensive EMD analysis plots.
+    Create comprehensive EMD analysis plots with smooth Welch power spectra.
 
     Args:
         signal: 2D array of shape (samples, channels)
@@ -152,12 +187,11 @@ def plot_emd(
         max_imfs_display: Maximum number of IMFs to show in plots
         freq_range: Frequency range for spectrum plots as (min, max)
         figsize: Figure size as (width, height)
+        welch_nperseg: Segment length for Welch method (None for auto)
 
     Returns:
         Tuple of (figure, axes_array)
     """
-    import matplotlib.pyplot as plt
-
     n_samples, n_channels = signal.shape
     n_imfs = imfs.shape[0]
 
@@ -183,7 +217,7 @@ def plot_emd(
         t_display = t[time_slice]
         display_samples = len(t_display)
 
-    # Create figure with 7 subplots
+    # Create figure with 9 subplots
     fig, axes = plt.subplots(3, 3, figsize=figsize)
     axes = axes.flatten()
 
@@ -270,31 +304,45 @@ def plot_emd(
     ax4.legend()
     ax4.grid(True, alpha=0.3)
 
-    # Plot 5: Frequency spectrum comparison
+    # Plot 5: Frequency spectrum comparison (using Welch method)
     ax5 = axes[4]
-    freqs = np.fft.fftfreq(n_samples, 1 / fs)
-    fft_orig = np.abs(np.fft.fft(signal[:, channel]))
+
+    # Calculate Welch PSDs for original and reconstructed signals
+    freqs_welch_orig, psd_orig = calculate_welch_psd(
+        signal[:, channel], fs, welch_nperseg
+    )
 
     # Reconstruct signal from IMFs
     reconstructed = np.sum(imfs[:, :, channel], axis=0)
-    fft_recon = np.abs(np.fft.fft(reconstructed))
+    freqs_welch_recon, psd_recon = calculate_welch_psd(reconstructed, fs, welch_nperseg)
 
-    # Plot positive frequencies only
-    mask = (freqs >= freq_range[0]) & (freqs <= freq_range[1])
+    # Plot in frequency range
+    mask_orig = (freqs_welch_orig >= freq_range[0]) & (
+        freqs_welch_orig <= freq_range[1]
+    )
+    mask_recon = (freqs_welch_recon >= freq_range[0]) & (
+        freqs_welch_recon <= freq_range[1]
+    )
+
     ax5.semilogy(
-        freqs[mask], fft_orig[mask], "b-", label="Original", alpha=0.7, linewidth=2
+        freqs_welch_orig[mask_orig],
+        psd_orig[mask_orig],
+        "b-",
+        label="Original",
+        alpha=0.7,
+        linewidth=2,
     )
     ax5.semilogy(
-        freqs[mask],
-        fft_recon[mask],
+        freqs_welch_recon[mask_recon],
+        psd_recon[mask_recon],
         "r--",
         label="Reconstructed",
         alpha=0.7,
         linewidth=2,
     )
-    ax5.set_title(f"Frequency Spectrum - Channel {channel+1}")
+    ax5.set_title(f"Frequency Spectrum (Welch) - Channel {channel+1}")
     ax5.set_xlabel("Frequency (Hz)")
-    ax5.set_ylabel("Magnitude")
+    ax5.set_ylabel("Power Spectral Density")
     ax5.legend()
     ax5.grid(True, alpha=0.3)
     ax5.set_xlim(freq_range)
@@ -323,106 +371,118 @@ def plot_emd(
         bbox=dict(boxstyle="round", facecolor="wheat"),
     )
 
-    # Plot 7: Power Spectrum of IMFs (normalized and non-normalized)
+    # Plot 7: Z-scored Power Spectra using Welch method
     ax7 = axes[6]
-    freqs = np.fft.fftfreq(n_samples, 1 / fs)
-    freq_mask = (freqs >= freq_range[0]) & (freqs <= freq_range[1])
-    freqs_plot = freqs[freq_mask]
 
-    # Calculate power spectra for each IMF
     n_imfs_spectrum = min(max_imfs_display, n_imfs - 1)  # Exclude residue
     colors = plt.cm.tab10(np.linspace(0, 1, n_imfs_spectrum))
 
-    # Plot normalized (z-scored) spectra
+    peak_frequencies = []  # Store peak frequencies for annotation
+
     for i in range(n_imfs_spectrum):
-        # Calculate power spectrum
-        fft_imf = np.fft.fft(imfs[i, :, channel])
-        power_spectrum = np.abs(fft_imf[freq_mask]) ** 2
+        # Calculate Welch PSD for this IMF
+        freqs_welch, psd_welch = calculate_welch_psd(
+            imfs[i, :, channel], fs, welch_nperseg
+        )
+
+        # Filter to frequency range
+        freq_mask = (freqs_welch >= freq_range[0]) & (freqs_welch <= freq_range[1])
+        freqs_plot = freqs_welch[freq_mask]
+        psd_plot = psd_welch[freq_mask]
 
         # Z-score normalization
-        power_mean = np.mean(power_spectrum)
-        power_std = np.std(power_spectrum)
-        if power_std > 0:
-            power_z = (power_spectrum - power_mean) / power_std
+        if len(psd_plot) > 0 and np.std(psd_plot) > 0:
+            psd_z = (psd_plot - np.mean(psd_plot)) / np.std(psd_plot)
         else:
-            power_z = np.zeros_like(power_spectrum)
+            psd_z = np.zeros_like(psd_plot)
 
         # Plot
         ax7.plot(
             freqs_plot,
-            power_z,
+            psd_z,
             color=colors[i],
             label=f"IMF {i+1}",
-            linewidth=1.5,
+            linewidth=2,
             alpha=0.8,
         )
 
-        # Find and annotate peak frequency
-        if len(power_z) > 0:
-            peak_idx = np.argmax(power_z)
+        # Find and store peak frequency
+        if len(psd_z) > 0:
+            peak_idx = np.argmax(psd_z)
             peak_freq = freqs_plot[peak_idx]
-            peak_power = power_z[peak_idx]
+            peak_power = psd_z[peak_idx]
+            peak_frequencies.append((peak_freq, peak_power, colors[i], i + 1))
 
-            # Annotate peak frequency
-            ax7.annotate(
-                f"{peak_freq:.1f} Hz",
-                xy=(peak_freq, peak_power),
-                xytext=(peak_freq + freq_range[1] * 0.05, peak_power + 0.5),
-                fontsize=9,
-                ha="left",
-                arrowprops=dict(arrowstyle="->", color=colors[i], alpha=0.7),
-            )
+    # Annotate peak frequencies
+    for peak_freq, peak_power, color, imf_num in peak_frequencies:
+        ax7.annotate(
+            f"{peak_freq:.1f} Hz",
+            xy=(peak_freq, peak_power),
+            xytext=(peak_freq + freq_range[1] * 0.05, peak_power + 0.5),
+            fontsize=9,
+            ha="left",
+            arrowprops=dict(arrowstyle="->", color=color, alpha=0.7),
+        )
 
-    ax7.set_title(f"Z-scored Power Spectra (Normalized) - Channel {channel+1}")
+    ax7.set_title(f"Z-scored Power Spectra (Welch) - Channel {channel+1}")
     ax7.set_xlabel("Frequency (Hz)")
     ax7.set_ylabel("Z-scored Power")
     ax7.grid(True, alpha=0.3)
     ax7.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
     ax7.set_xlim(freq_range)
 
-    # Plot 8: Raw Power Spectra (Non-normalized)
+    # Plot 8: Raw Power Spectra using Welch method (Non-normalized)
     ax8 = axes[7]
 
-    # Plot raw (non-normalized) spectra on log scale
-    for i in range(n_imfs_spectrum):
-        # Calculate power spectrum
-        fft_imf = np.fft.fft(imfs[i, :, channel])
-        power_spectrum = np.abs(fft_imf[freq_mask]) ** 2
+    peak_frequencies_raw = []  # Store peak frequencies for annotation
 
-        # Plot on log scale
-        ax8.semilogy(
-            freqs_plot,
-            power_spectrum,
-            color=colors[i],
-            label=f"IMF {i+1}",
-            linewidth=1.5,
-            alpha=0.8,
+    for i in range(n_imfs_spectrum):
+        # Calculate Welch PSD for this IMF
+        freqs_welch, psd_welch = calculate_welch_psd(
+            imfs[i, :, channel], fs, welch_nperseg
         )
 
-        # Find and annotate peak frequency
-        if len(power_spectrum) > 0:
-            peak_idx = np.argmax(power_spectrum)
-            peak_freq = freqs_plot[peak_idx]
-            peak_power = power_spectrum[peak_idx]
+        # Filter to frequency range
+        freq_mask = (freqs_welch >= freq_range[0]) & (freqs_welch <= freq_range[1])
+        freqs_plot = freqs_welch[freq_mask]
+        psd_plot = psd_welch[freq_mask]
 
-            # Annotate peak frequency
-            ax8.annotate(
-                f"{peak_freq:.1f} Hz",
-                xy=(peak_freq, peak_power),
-                xytext=(peak_freq + freq_range[1] * 0.05, peak_power * 2),
-                fontsize=9,
-                ha="left",
-                arrowprops=dict(arrowstyle="->", color=colors[i], alpha=0.7),
+        # Plot on log scale
+        if len(psd_plot) > 0:
+            ax8.semilogy(
+                freqs_plot,
+                psd_plot,
+                color=colors[i],
+                label=f"IMF {i+1}",
+                linewidth=2,
+                alpha=0.8,
             )
 
-    ax8.set_title(f"Raw Power Spectra (Non-normalized) - Channel {channel+1}")
+            # Find and store peak frequency
+            peak_idx = np.argmax(psd_plot)
+            peak_freq = freqs_plot[peak_idx]
+            peak_power = psd_plot[peak_idx]
+            peak_frequencies_raw.append((peak_freq, peak_power, colors[i], i + 1))
+
+    # Annotate peak frequencies
+    for peak_freq, peak_power, color, imf_num in peak_frequencies_raw:
+        ax8.annotate(
+            f"{peak_freq:.1f} Hz",
+            xy=(peak_freq, peak_power),
+            xytext=(peak_freq + freq_range[1] * 0.05, peak_power * 2),
+            fontsize=9,
+            ha="left",
+            arrowprops=dict(arrowstyle="->", color=color, alpha=0.7),
+        )
+
+    ax8.set_title(f"Raw Power Spectra (Welch) - Channel {channel+1}")
     ax8.set_xlabel("Frequency (Hz)")
-    ax8.set_ylabel("Power (log scale)")
+    ax8.set_ylabel("Power Spectral Density (log scale)")
     ax8.grid(True, alpha=0.3)
     ax8.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
     ax8.set_xlim(freq_range)
 
-    # Plot 9: IMF Power Distribution (moved from position 8)
+    # Plot 9: IMF Power Distribution
     ax9 = axes[8]
     imf_powers = []
     imf_labels = []
@@ -469,10 +529,15 @@ def plot_emd(
     print(f"Max absolute error: {max_error:.3f}")
 
     # Print power distribution
-    print(f"\nPower Distribution:")
+    print("\nPower Distribution:")
     for i, (label, power) in enumerate(zip(imf_labels, imf_powers)):
         percentage = 100 * power / total_power
         print(f"  {label}: {percentage:.1f}% of total power")
+
+    # Print dominant frequencies from Welch analysis
+    print("\nDominant Frequencies (Welch method):")
+    for peak_freq, _, _, imf_num in peak_frequencies_raw:
+        print(f"  IMF {imf_num}: {peak_freq:.1f} Hz")
 
     return fig, axes
 
@@ -507,7 +572,7 @@ def example_usage():
     print("Calculating instantaneous frequency and amplitude...")
     inst_freq, inst_amp, inst_phase = calc_instantaneous_info(imfs, fs)
 
-    # Create plots using the new function
+    # Create plots using the updated function with Welch method
     fig, axes = plot_emd(
         signal=signal,
         imfs=imfs,
@@ -518,6 +583,7 @@ def example_usage():
         time_window=(0, 1),  # Show first second
         max_imfs_display=5,
         freq_range=(0, 100),
+        welch_nperseg=512,  # Segment length for Welch method
     )
 
     plt.show()
