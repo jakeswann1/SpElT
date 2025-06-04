@@ -367,11 +367,33 @@ class ephys:  # noqa: N801
                 print(f"Loading TTL data for {self.trial_list[trial_iterator]}")
 
             try:
-                self.sync_data[trial_iterator] = {
+                ttl_times = {
                     "ttl_timestamps": se.read_openephys_event(path).get_event_times(
                         channel_id="Neuropixels PXI Sync"
                     )
                 }
+
+                # Get time when recording started and rescale timestamps
+                if not self.analyzer:
+                    self._load_ephys(sparse=False)
+
+                recording_start_time = self.analyzer.recording.get_start_time(
+                    segment_index=trial_iterator
+                )
+
+                if ttl_times["ttl_timestamps"][0] - recording_start_time < 0:
+                    Warning(
+                        f"Recording start time {recording_start_time} is later than "
+                        f"the first TTL pulse {ttl_times['ttl_timestamps'][0]}"
+                        f"setting first TTL pulse to 0"
+                    )
+                    ttl_times["ttl_timestamps"] = (
+                        ttl_times["ttl_timestamps"] - ttl_times["ttl_timestamps"][0]
+                    )
+                else:
+                    ttl_times["ttl_timestamps"] -= recording_start_time
+
+                self.sync_data[trial_iterator] = ttl_times
             except ValueError:
                 self.sync_data[trial_iterator] = {"ttl_timestamps": None}
                 Warning(f"No TTL data found for trial {trial_iterator}")
