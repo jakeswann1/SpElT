@@ -481,6 +481,7 @@ def plot_emd(
     ax8.grid(True, alpha=0.3)
     ax8.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=8)
     ax8.set_xlim(freq_range)
+    ax8.set_ylim(bottom=1e-2)  # Avoid log(0) issues
 
     # Plot 9: IMF Power Distribution
     ax9 = axes[8]
