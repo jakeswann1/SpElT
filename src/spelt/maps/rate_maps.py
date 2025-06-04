@@ -229,7 +229,7 @@ def _build_session_title(
     # Add mean firing rate if available
     if session_key in mean_rates_dict and cluster_id in mean_rates_dict[session_key]:
         mean_rate = mean_rates_dict[session_key][cluster_id]
-        title_parts.append(f"Mean FR: {mean_rate:.2f} Hz")
+        title_parts.append(f"Mean FR: {mean_rate:.2f} Hz \n")
 
     # Add spatial information if available
     if (

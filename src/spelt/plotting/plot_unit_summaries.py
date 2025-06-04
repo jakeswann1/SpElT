@@ -34,19 +34,13 @@ def plot_unit_summaries(
 
     for unit_id in units_to_plot:
         segments = list(range(analyzer.get_num_segments()))
-        if si.__version__ >= "0.102.2":
-            sw.plot_unit_summary(
-                analyzer,
-                unit_id,
-            )
-        else:
-            sw.plot_unit_summary(
-                analyzer,
-                unit_id,
-                subwidget_kwargs={
-                    "amplitudes": {"segment_indices": segments},
-                },
-            )
+        sw.plot_unit_summary(
+            analyzer,
+            unit_id,
+            subwidget_kwargs={
+                "amplitudes": {"segment_indices": segments},
+            },
+        )
 
         if output_folder:
             output_folder = Path(output_folder)
