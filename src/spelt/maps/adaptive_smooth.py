@@ -136,10 +136,16 @@ def adaptive_smooth(spk_map, pos_map, alpha, max_radius=None):
         # Increase circle radius
         radius += 1
 
+    # FIX: For any visited bins that were never smoothed,
+    # use original values instead of leaving as zeros
+    never_smoothed = (pos_map > 0) & ~smoothed_check
+    smoothed_spk[never_smoothed] = spk_map[never_smoothed]
+    smoothed_pos[never_smoothed] = pos_map[never_smoothed]
+
     # Finalizing smoothed rate map
     smoothed_rate = finalize_smoothed_rate_map(smoothed_spk, smoothed_pos, pos_map)
 
     # Compute median filter radius
-    median_radius = np.nanmedian(radii_used_list)
+    median_radius = np.nanmedian(radii_used_list) if radii_used_list else np.nan
 
     return smoothed_spk, smoothed_pos, smoothed_rate, median_radius
