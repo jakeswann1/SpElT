@@ -158,6 +158,14 @@ class ephys:  # noqa: N801
         self.max_speed = 5
         self.smoothing_window_size = 3
 
+        # Map data types to their attribute names
+        self._data_type_map = {
+            "position": "pos_data",
+            "lfp": "lfp_data",
+            "ttl": "sync_data",
+            "spike": "spike_data",
+        }
+
     def load_spikes(
         self,
         unit_ids: list | None = None,
@@ -246,6 +254,103 @@ class ephys:  # noqa: N801
 
         return unit_spikes
 
+    def normalize_trial_list(
+        self, trial_list: int | list[int] | None, data_type: str = "position"
+    ) -> list[int]:
+        """
+        Normalize trial list input to a list of integers.
+
+        Args:
+            trial_list: The trial list to normalize. Can be an integer, list of integers, or None.
+            data_type: The type of data being loaded (e.g., "position", "lfp", "ttl").
+
+        Returns:
+            A list of trial indices.
+        """
+        if isinstance(trial_list, int):
+            return [trial_list]
+        elif trial_list is None:
+            print(f"No trial list specified, loading {data_type} data for all trials")
+            return self.trial_iterators
+        return trial_list
+
+    def should_load_data(
+        self, trial_iterator: int, data_type: str, reload_flag: bool
+    ) -> bool:
+        """
+        Check if data should be loaded for the given trial.
+
+        Args:
+            trial_iterator: The trial index to check.
+            data_type: The type of data being loaded (e.g., "position", "lfp", "ttl").
+            reload_flag: If True, forces reloading of data.
+
+        Returns:
+            True if data should be loaded, False otherwise.
+        """
+        if data_type not in self._data_type_map:
+            raise ValueError(f"Unknown data type: {data_type}")
+
+        data_attr = self._data_type_map[data_type]
+        if not reload_flag and getattr(self, data_attr)[trial_iterator] is not None:
+            print(
+                f"{data_type.capitalize()} data already loaded for trial {trial_iterator}"
+            )
+            return False
+        return True
+
+    def log_loading_info(self, path: Path, data_type: str, output_flag: bool):
+        """
+        Log information about loading data.
+
+        Args:
+            path: The path to the data file.
+            data_type: The type of data being loaded (e.g., "position", "lfp", "ttl").
+            output_flag: If True, print loading information.
+        """
+        if output_flag:
+            print(f"Loading {data_type} data from path: {path}")
+
+    def load_pos(
+        self,
+        trial_list: int | list[int] | None = None,
+        output_flag=True,
+        reload_flag=False,
+    ):
+        """
+        Loads and postprocesses the position data for specified trials.
+        Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
+
+        Args:
+            trial_list: The index of the trial(s) for which position data is to be loaded.
+            output_flag: if True, print a statement when loading the pos file
+            reload_flag: if True, forces reloading of data. If false, only loads data for trials with no position data loaded
+
+        Populates:
+            self.pos_data (list): A list that stores position data for each trial.
+                The position data for the specified trial is added at the given index.
+        """
+        trial_list = self.normalize_trial_list(trial_list, "position")
+
+        for trial_idx, trial_iterator in enumerate(trial_list):
+            if not self.should_load_data(trial_iterator, "position", reload_flag):
+                continue
+
+            path = self.recording_path / self.trial_list[trial_iterator]
+            self.log_loading_info(path, "position", output_flag)
+
+            try:
+                tracking_type = self.tracking_types[trial_idx]
+                pos_data = self._load_pos_data_by_type(
+                    tracking_type, path, trial_iterator, output_flag
+                )
+                self.pos_data[trial_iterator] = pos_data
+            except Exception as e:
+                print(
+                    f"Error loading position data for trial {trial_iterator}: {str(e)}"
+                )
+                self.pos_data[trial_iterator] = None
+
     def load_lfp(
         self,
         trial_list: int | list[int] = None,
@@ -256,8 +361,8 @@ class ephys:  # noqa: N801
         bandpass_filter: list[float, float] | None = None,
     ):
         """
-        Loads the LFP (Local Field Potential) data for a specified trial.
-            Currently from raw Dacq .bin files using the spikeinterface package
+        Loads the LFP (Local Field Potential) data for specified trials.
+        Currently from raw Dacq .bin files using the spikeinterface package
         Masks clipped values and scales to microvolts based on the gain in the .set file
 
         Args:
@@ -273,14 +378,7 @@ class ephys:  # noqa: N801
             self.lfp_data (list): A list that stores LFP data for each trial.
                 The LFP data for the specified trial is added at the given index.
         """
-        import spikeinterface.preprocessing as spre
-
-        # Deal with int trial_list
-        if isinstance(trial_list, int):
-            trial_list = [trial_list]
-        elif trial_list is None:
-            trial_list = self.trial_iterators
-            print("No trial list specified, loading LFP data for all trials")
+        trial_list = self.normalize_trial_list(trial_list, "lfp")
 
         if self.analyzer is None:
             self._load_ephys(sparse=False)
@@ -309,11 +407,13 @@ class ephys:  # noqa: N801
             channels = list(map(str, channels))
 
         for trial_iterator in trial_list:
-            # Check if LFP is already loaded for session:
-            if not reload_flag and self.lfp_data[trial_iterator] is not None:
-                print(f"LFP data already loaded for trial {trial_iterator}")
-            else:
-                # Load LFP traces for trial
+            if not self.should_load_data(trial_iterator, "lfp", reload_flag):
+                continue
+
+            path = self.recording_path / self.trial_list[trial_iterator]
+            self.log_loading_info(path, "lfp", True)
+
+            try:
                 lfp_data = recording.get_traces(
                     segment_index=trial_iterator,
                     channel_ids=channels,
@@ -328,12 +428,15 @@ class ephys:  # noqa: N801
                     "sampling_rate": sampling_rate,
                     "channels": channels,
                 }
+            except Exception as e:
+                print(f"Error loading LFP data for trial {trial_iterator}: {str(e)}")
+                self.lfp_data[trial_iterator] = None
 
     def load_ttl(
         self, trial_iterators: int | list[int] | None = None, output_flag=True
     ):
         """
-        Load TTL data for a specified trial from OpenEphys recording
+        Load TTL data for specified trials from OpenEphys recording
 
         Args:
             trial_list: The index of the trial(s) for which TTL data is to be loaded.
@@ -347,24 +450,14 @@ class ephys:  # noqa: N801
             print("TTL data only available for NP2_openephys recordings")
             return
 
-        # Deal with int trial_list
-        if isinstance(trial_iterators, int):
-            trial_iterators = [trial_iterators]
-        elif isinstance(trial_iterators, list):
-            pass
-        else:
-            trial_iterators = self.trial_iterators
-            (
-                print("No trial list specified, loading TTL data for all trials")
-                if output_flag
-                else None
-            )
+        trial_list = self.normalize_trial_list(trial_iterators, "ttl")
 
-        for trial_iterator in trial_iterators:
-            # Get path of trial to load
+        for trial_iterator in trial_list:
+            if not self.should_load_data(trial_iterator, "ttl", True):
+                continue
+
             path = self.recording_path / self.trial_list[trial_iterator]
-            if output_flag:
-                print(f"Loading TTL data for {self.trial_list[trial_iterator]}")
+            self.log_loading_info(path, "ttl", output_flag)
 
             try:
                 ttl_times = {
@@ -394,287 +487,219 @@ class ephys:  # noqa: N801
                     ttl_times["ttl_timestamps"] -= recording_start_time
 
                 self.sync_data[trial_iterator] = ttl_times
-            except ValueError:
+            except Exception as e:
+                print(f"Error loading TTL data for trial {trial_iterator}: {str(e)}")
                 self.sync_data[trial_iterator] = {"ttl_timestamps": None}
-                Warning(f"No TTL data found for trial {trial_iterator}")
 
-    def load_pos(
+    def _load_pos_data_by_type(
+        self, tracking_type: str, path: Path, trial_iterator: int, output_flag: bool
+    ) -> dict:
+        """Load position data based on tracking type."""
+        if tracking_type == "axona":
+            return self._load_axona_pos_data(path, trial_iterator, output_flag)
+        elif tracking_type in ["bonsai_roi", "bonsai_leds"]:
+            return self._load_bonsai_pos_data(
+                path, trial_iterator, tracking_type, output_flag
+            )
+        elif (path / "dlc.csv").exists():
+            return self._load_dlc_pos_data(path, output_flag)
+        else:
+            raise ValueError(f"Unsupported tracking type: {tracking_type}")
+
+    def _load_axona_pos_data(
+        self, path: Path, trial_iterator: int, output_flag: bool
+    ) -> dict:
+        """Load position data from Axona format."""
+        from .axona_utils.load_pos_axona import load_pos_axona
+        from .axona_utils.postprocess_pos_data import postprocess_pos_data
+
+        override_ppm = 615 if "t-maze" in self.trial_list[trial_iterator] else None
+        if override_ppm and output_flag:
+            print("Real PPM artificially set to 615 (t-maze default)")
+
+        raw_pos_data, pos_sampling_rate = self._load_axona_raw_data(
+            path, override_ppm, output_flag, trial_iterator
+        )
+
+        xy_pos, led_pos, led_pix, speed, direction, direction_disp = (
+            postprocess_pos_data(
+                raw_pos_data, self.max_speed, self.smoothing_window_size
+            )
+        )
+
+        # Rescale timestamps to seconds
+        xy_pos.columns /= pos_sampling_rate
+        led_pos.columns /= pos_sampling_rate
+        led_pix.columns /= pos_sampling_rate
+
+        return {
+            "header": raw_pos_data.get("header"),
+            "xy_position": xy_pos,
+            "led_positions": led_pos,
+            "led_pixel_size": led_pix,
+            "speed": speed,
+            "direction": direction,
+            "direction_from_displacement": direction_disp,
+            "pos_sampling_rate": pos_sampling_rate,
+            "scaled_ppm": 400,
+        }
+
+    def _load_axona_raw_data(
         self,
-        trial_list: int | list[int] | None = None,
-        output_flag=True,
-        reload_flag=False,
-    ):
-        """
-        Loads and postprocesses the position data for a specified trial.
-        Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
+        path: Path,
+        override_ppm: int | None,
+        output_flag: bool,
+        trial_iterator: int,
+    ) -> tuple:
+        """Load raw Axona position data from various file formats."""
+        from .axona_utils.load_pos_axona import load_pos_axona
+        from .axona_utils.axona_preprocessing import pos_from_bin
+        from .axona_utils.postprocess_pos_data import write_csv_from_pos
 
-        Args:
-            trial_list: The index of the trial for which position data is to be loaded.
-            output_flag: if True, print a statement when loading the pos file
-            reload_flag: if True, forces reloading of data. If
-                false, only loads data for trials with no position data loaded
-
-        Populates:
-            self.pos_data (list): A list that stores position data for each trial.
-                The position data for the specified trial is added at the given index.
-        """
-
-        # Deal with int trial_list
-        if isinstance(trial_list, int):
-            trial_list = [trial_list]
-        elif trial_list is None:
-            trial_list = self.trial_iterators
-            print("No trial list specified, loading position data for all trials")
-
-        for trial_idx, trial_iterator in enumerate(trial_list):
-            # Check if position data is already loaded for session:
-            if not reload_flag and self.pos_data[trial_iterator] is not None:
-                print(f"Position data already loaded for trial {trial_iterator}")
-                continue
-
-            # Get path of trial to load
-            path = self.recording_path / self.trial_list[trial_iterator]
-            (
-                print(
-                    f"""Loading position data for {self.trial_list[trial_iterator]}
-                        from path: {path}"""
+        try:
+            return load_pos_axona(path, override_ppm)
+        except FileNotFoundError:
+            if output_flag:
+                print("No .csv file found, trying to load from .bin file")
+            try:
+                pos_from_bin(path)
+                return load_pos_axona(
+                    path / self.trial_list[trial_iterator], override_ppm
                 )
-                if output_flag
-                else None
+            except FileNotFoundError:
+                if output_flag:
+                    print("No .csv or .bin file found, trying to load from .pos file")
+                write_csv_from_pos(path.with_suffix(".pos"))
+                return load_pos_axona(path, override_ppm)
+
+    def _load_bonsai_pos_data(
+        self, path: Path, trial_iterator: int, tracking_type: str, output_flag: bool
+    ) -> dict:
+        """Load position data from Bonsai format."""
+        from .np2_utils.load_pos_bonsai import load_pos_bonsai_isa, load_pos_bonsai_jake
+        from .np2_utils.postprocess_pos_data_np2 import (
+            postprocess_bonsai_jake,
+            sync_bonsai_jake,
+        )
+
+        if self.sync_data[trial_iterator] is None:
+            self.load_ttl(trial_iterator, output_flag=False)
+
+        ttl_times = self.sync_data[trial_iterator].get("ttl_timestamps")
+        ttl_freq = (
+            1 / np.mean(np.diff(ttl_times[2:])) if ttl_times is not None else None
+        )
+
+        if tracking_type == "bonsai_roi" and path.with_suffix(".csv").exists():
+            return self._load_bonsai_roi_data(
+                path, trial_iterator, ttl_times, ttl_freq, output_flag
+            )
+        elif tracking_type == "bonsai_leds" and path.with_suffix(".csv").exists():
+            return self._load_bonsai_leds_data(path, trial_iterator, output_flag)
+        else:
+            raise FileNotFoundError(
+                f"No Bonsai position data found for trial {trial_iterator}"
             )
 
-            if self.tracking_types[trial_idx] == "axona":
-                from .axona_utils.load_pos_axona import load_pos_axona
-                from .axona_utils.postprocess_pos_data import postprocess_pos_data
+    def _load_bonsai_roi_data(
+        self,
+        path: Path,
+        trial_iterator: int,
+        ttl_times: np.ndarray,
+        ttl_freq: float,
+        output_flag: bool,
+    ) -> dict:
+        """Load position data from Bonsai ROI format."""
+        from .np2_utils.load_pos_bonsai import load_pos_bonsai_jake
+        from .np2_utils.postprocess_pos_data_np2 import (
+            postprocess_bonsai_jake,
+            sync_bonsai_jake,
+        )
 
-                # TODO: NEEDS FIXING PROPERLY!!!!
-                # If t-maze trial, rescale PPM because it isn't set right in pos file
-                if "t-maze" in self.trial_list[trial_iterator]:
-                    override_ppm = 615
-                    (
-                        print("Real PPM artifically set to 615 (t-maze default)")
-                        if output_flag
-                        else None
-                    )
-                else:
-                    override_ppm = None
+        if output_flag:
+            print(f"Loading raw Bonsai position data from path {path}")
 
-                # Load Axona pos data from csv file and preprocess
-                try:
-                    raw_pos_data, pos_sampling_rate = load_pos_axona(path, override_ppm)
-                except FileNotFoundError:
-                    # If .csv file not found, try to load from .bin file
-                    try:
-                        from .axona_utils.axona_preprocessing import pos_from_bin
+        trial_type = self.session["Trial Type"].iloc[trial_iterator]
+        try:
+            raw_pos_data = load_pos_bonsai_jake(
+                path.with_suffix(".csv"), 400, trial_type
+            )
+        except FileNotFoundError:
+            path = path.with_suffix(".csv").replace("t-maze", "T-maze")
+            if output_flag:
+                print(f"Looking for Bonsai file with name {path}")
+            raw_pos_data = load_pos_bonsai_jake(path, 400, trial_type)
 
-                        (
-                            print("No .csv file found, trying to load from .bin file")
-                            if output_flag
-                            else None
-                        )
-                        pos_from_bin(path)
-                        raw_pos_data, pos_sampling_rate = load_pos_axona(
-                            path / self.trial_list[trial_iterator], override_ppm
-                        )
-                    except FileNotFoundError:
-                        # If .bin file not found, try to load from .pos file
-                        from .axona_utils.postprocess_pos_data import write_csv_from_pos
+        xy_pos, speed, direction_disp = postprocess_bonsai_jake(
+            raw_pos_data, self.max_speed, self.smoothing_window_size
+        )
 
-                        (
-                            print(
-                                """No .csv or .bin file found,
-                                trying to load from .pos file"""
-                            )
-                            if output_flag
-                            else None
-                        )
-                        write_csv_from_pos(path.with_suffix(".pos"))
-                        raw_pos_data, pos_sampling_rate = load_pos_axona(
-                            path, override_ppm
-                        )
+        pos_sampling_rate = 1 / np.mean(np.diff(ttl_times))
+        xy_pos, speed, direction_disp = sync_bonsai_jake(
+            xy_pos, ttl_times, pos_sampling_rate, speed, direction_disp
+        )
 
-                # Postprocess posdata
-                (
-                    xy_pos,
-                    led_pos,
-                    led_pix,
-                    speed,
-                    direction,
-                    direction_disp,
-                ) = postprocess_pos_data(
-                    raw_pos_data, self.max_speed, self.smoothing_window_size
-                )
+        return {
+            "xy_position": xy_pos,
+            "speed": speed,
+            "direction_from_displacement": direction_disp,
+            "ttl_times": ttl_times,
+            "ttl_freq": ttl_freq,
+            "pos_sampling_rate": pos_sampling_rate,
+            "scaled_ppm": 400,
+        }
 
-                # Rescale timestamps to seconds
-                xy_pos.columns /= pos_sampling_rate
-                led_pos.columns /= pos_sampling_rate
-                led_pix.columns /= pos_sampling_rate
+    def _load_bonsai_leds_data(
+        self, path: Path, trial_iterator: int, output_flag: bool
+    ) -> dict:
+        """Load position data from Bonsai LEDs format."""
+        from .np2_utils.load_pos_bonsai import load_pos_bonsai_isa
+        from .np2_utils.postprocess_pos_data_np2 import postprocess_bonsai_jake
 
-            elif self.tracking_types[trial_idx] in ["bonsai_roi", "bonsai_leds"]:
-                from .np2_utils.load_pos_bonsai import (
-                    load_pos_bonsai_isa,
-                    load_pos_bonsai_jake,
-                )
-                from .np2_utils.load_pos_dlc import load_pos_dlc
-                from .np2_utils.postprocess_pos_data_np2 import (
-                    postprocess_bonsai_jake,
-                    postprocess_dlc_data,
-                )
+        if output_flag:
+            print("Loading raw Bonsai position data (Isa format)")
 
-                # Load TTL sync data
-                if self.sync_data[trial_iterator] is None:
-                    self.load_ttl(trial_iterator, output_flag=False)
-                # Get TTL times
-                try:
-                    ttl_times = self.sync_data[trial_iterator]["ttl_timestamps"][2:]
-                    ttl_freq = 1 / np.mean(np.diff(ttl_times))
-                except TypeError:
-                    ttl_times = None
-                    ttl_freq = None
-                    Warning(f"No TTL data found for trial {trial_iterator}")
+        trial_type = self.session["Trial Type"].iloc[trial_iterator]
+        raw_pos_data = load_pos_bonsai_isa(path.with_suffix(".csv"), 400, trial_type)
 
-                # Jake Bonsai Format
-                if (
-                    self.tracking_types[trial_idx] == "bonsai_roi"
-                    and path.with_suffix(".csv").exists()
-                ):
-                    (
-                        print(f"Loading raw Bonsai position data frop path {path}")
-                        if output_flag
-                        else None
-                    )
-                    trial_type = self.session["Trial Type"].iloc[trial_iterator]
-                    try:
-                        raw_pos_data = load_pos_bonsai_jake(
-                            path.with_suffix(".csv"), 400, trial_type
-                        )
-                        print("Loaded Bonsai position data from csv file")
-                    except FileNotFoundError:
-                        path = path.with_suffix(".csv").replace("t-maze", "T-maze")
-                        print(f"looking for Bonsai file with name {path}")
+        xy_pos, speed, direction_disp = postprocess_bonsai_jake(
+            raw_pos_data, self.max_speed, self.smoothing_window_size
+        )
 
-                        raw_pos_data = load_pos_bonsai_jake(path, 400, trial_type)
-                    # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
+        return {
+            "xy_position": xy_pos,
+            "speed": speed,
+            "direction_from_displacement": direction_disp,
+            "pos_sampling_rate": raw_pos_data["sampling_rate"],
+            "scaled_ppm": 400,
+        }
 
-                    xy_pos, speed, direction_disp = postprocess_bonsai_jake(
-                        raw_pos_data, self.max_speed, self.smoothing_window_size
-                    )
+    def _load_dlc_pos_data(self, path: Path, output_flag: bool) -> dict:
+        """Load position data from DeepLabCut format."""
+        from .np2_utils.load_pos_dlc import load_pos_dlc
+        from .np2_utils.postprocess_pos_data_np2 import postprocess_dlc_data
 
-                    pos_sampling_rate = 1 / np.mean(np.diff(ttl_times))
+        if output_flag:
+            print("Loading DLC position data")
 
-                    if len(xy_pos.columns) == len(ttl_times):
-                        xy_pos.columns = ttl_times
-                    elif len(xy_pos.columns) < len(ttl_times):
-                        xy_pos.columns = ttl_times[: len(xy_pos.columns)]
-                        print(
-                            f"""
-                            WARNING: Bonsai position data has
-                            more TTL pulses than position samples times.
-                            Position samples: {len(xy_pos.columns)}
-                            vs TTL times: {len(ttl_times)}
-                            Removing {len(ttl_times) - len(xy_pos.columns)}
-                            TTL pulses from the end of TTL times.
-                            Data may be up to
-                            {(len(ttl_times) - len(xy_pos.columns))/pos_sampling_rate}
-                             seconds out of sync.
-                            """
-                        )
-                    elif len(xy_pos.columns) > len(ttl_times):
-                        print(
-                            f"""
-                            WARNING: Bonsai position data has
-                            more position samples than TTL pulses.
-                            Position samples: {len(xy_pos.columns)}
-                            vs TTL times: {len(ttl_times)}
-                            Removing {len(xy_pos.columns) - len(ttl_times)}
-                            position samples from the end of position data.
-                            Data may be up to
-                            {(len(xy_pos.columns) - len(ttl_times))/pos_sampling_rate}
-                             seconds out of sync.
-                            """
-                        )
-                        xy_pos = xy_pos.iloc[:, : len(ttl_times)]
-                        xy_pos.columns = ttl_times
-                        speed = speed[: len(ttl_times)]
-                        direction_disp = direction_disp[: len(ttl_times)]
+        raw_pos_data = load_pos_dlc(path, 400)
+        raw_pos_data["header"]["tracked_point_angle_1"] = 0
 
-                # Isa Bonsai Format
-                elif (
-                    self.tracking_types[trial_idx] == "bonsai_leds"
-                    and path.with_suffix(".csv").exists()
-                ):
-                    (
-                        print("Loading raw Bonsai position data (Isa format)")
-                        if output_flag
-                        else None
-                    )
-                    trial_type = self.session["Trial Type"].iloc[trial_iterator]
-                    raw_pos_data = load_pos_bonsai_isa(
-                        path.with_suffix(".csv"), 400, trial_type
-                    )
+        xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(
+            raw_pos_data, self.max_speed, self.smoothing_window_size
+        )
 
-                    xy_pos, speed, direction_disp = postprocess_bonsai_jake(
-                        raw_pos_data, self.max_speed, self.smoothing_window_size
-                    )
-
-                    pos_sampling_rate = raw_pos_data["sampling_rate"]
-
-                elif (path / "dlc.csv").exists():
-                    print("Loading DLC position data") if output_flag else None
-                    # Load DeepLabCut position data from csv file
-                    raw_pos_data = load_pos_dlc(
-                        path, 400
-                    )  # TODO: HARDCODED PPM FOR NOW - NEEDS CHANGING
-
-                    # Add angle of tracked head point to header (probably 0)
-                    # TODO: make dynamic
-                    raw_pos_data["header"]["tracked_point_angle_1"] = 0
-
-                    # Postprocess posdata
-                    (
-                        xy_pos,
-                        tracked_points,
-                        speed,
-                        direction,
-                        direction_disp,
-                    ) = postprocess_dlc_data(
-                        raw_pos_data, self.max_speed, self.smoothing_window_size
-                    )
-
-                    bonsai_timestamps = raw_pos_data["bonsai_timestamps"]
-                    camera_timestamps = raw_pos_data["camera_timestamps"]
-
-                # else:
-                #     print(f"No position data found for trial {trial_iterator}")
-                #     raw_pos_data = None
-
-            # Populate processed pos data
-            self.pos_data[trial_iterator] = {
-                "header": (
-                    raw_pos_data["header"] if "header" in raw_pos_data.keys() else None
-                ),
-                "xy_position": xy_pos,
-                "led_positions": led_pos if "led_pos" in locals() else None,
-                "led_pixel_size": led_pix if "led_pos" in locals() else None,
-                "ttl_times": ttl_times if "ttl_times" in locals() else None,
-                "ttl_freq": ttl_freq if "ttl_freq" in locals() else None,
-                "bonsai_timestamps": (
-                    bonsai_timestamps if "bonsai_timestamps" in locals() else None
-                ),
-                "camera_timestamps": (
-                    camera_timestamps if "camera_timestamps" in locals() else None
-                ),
-                "tracked_points": (
-                    tracked_points if "tracked_points" in locals() else None
-                ),
-                "speed": speed,  # in cm/s
-                "direction": direction if "direction" in locals() else None,
-                "direction_from_displacement": direction_disp,
-                "pos_sampling_rate": (
-                    pos_sampling_rate if "pos_sampling_rate" in locals() else None
-                ),
-                "scaled_ppm": 400,  # HARD CODED - TODO: FIX IF NECESSARY
-            }
+        return {
+            "header": raw_pos_data["header"],
+            "xy_position": xy_pos,
+            "tracked_points": tracked_points,
+            "speed": speed,
+            "direction": direction,
+            "direction_from_displacement": direction_disp,
+            "bonsai_timestamps": raw_pos_data["bonsai_timestamps"],
+            "camera_timestamps": raw_pos_data["camera_timestamps"],
+            "scaled_ppm": 400,
+        }
 
     def _load_ephys(self, keep_good_only=False, sparse=True):
         """

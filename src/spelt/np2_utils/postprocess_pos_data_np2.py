@@ -1,15 +1,12 @@
 import numpy as np
-import pandas as pd
-from scipy.ndimage import uniform_filter
-from scipy.interpolate import interp1d
 
 from ..axona_utils.postprocess_pos_data import (
-    led_speed_filter,
-    interpolate_nan_values,
     boxcar_smooth,
-    calculate_position,
     calculate_heading_direction,
+    calculate_position,
     calculate_speed,
+    interpolate_nan_values,
+    led_speed_filter,
 )
 
 
@@ -18,11 +15,13 @@ def postprocess_dlc_data(posdata, max_speed, smoothing_window_size):
 
     if "bodypart_pos" in posdata:
         tracked_points = posdata["bodypart_pos"]
-        # To correct for tracked point orientation, we need to subtract the head point angle value from the direction
+        # To correct for tracked point orientation,
+        # we need to subtract the head point angle value from the direction
         correction = int(posdata["header"]["tracked_point_angle_1"])
     elif "led_pos" in posdata:
         tracked_points = posdata["led_pos"]
-        # To correct for tracked point orientation, we need to subtract position of LED 1 from the direction
+        # To correct for tracked point orientation,
+        # we need to subtract position of LED 1 from the direction
         correction = int(posdata["header"]["bearing_colour_1"])
 
     # Filter points for those moving impossibly fast and set tracked_points_x to NaN
@@ -53,9 +52,9 @@ def postprocess_dlc_data(posdata, max_speed, smoothing_window_size):
     )
 
     # Get position from smoothed individual lights
-    headPos = 0.5  # Hard-coded for now, not included in current metadata
+    head_pos = 0.5  # Hard-coded for now, not included in current metadata
     # Proportional distance of the rat's head between the LEDs, 0.5 being halfway
-    xy_pos = calculate_position(tracked_points, headPos)
+    xy_pos = calculate_position(tracked_points, head_pos)
 
     # Calculate heading from displacement
     direction_disp = calculate_heading_direction(xy_pos)
@@ -77,7 +76,8 @@ def postprocess_bonsai_jake(posdata, max_speed, smoothing_window_size):
     smoothed_pos = boxcar_smooth(raw_pos, window_size=smoothing_window_size)
     smoothed_pos.index = ["X", "Y"]
 
-    # Calculate heading from displacement, can't calculate true direction as only a single point is tracked
+    # Calculate heading from displacement,
+    # can't calculate true direction as only a single point is tracked
     direction_disp = calculate_heading_direction(smoothed_pos)
 
     speed = calculate_speed(
@@ -85,3 +85,41 @@ def postprocess_bonsai_jake(posdata, max_speed, smoothing_window_size):
     )
 
     return smoothed_pos, speed, direction_disp
+
+
+def sync_bonsai_jake(xy_pos, ttl_times, pos_sampling_rate, speed, direction_disp):
+    if len(xy_pos.columns) == len(ttl_times):
+        xy_pos.columns = ttl_times
+    elif len(xy_pos.columns) < len(ttl_times):
+        xy_pos.columns = ttl_times[: len(xy_pos.columns)]
+        print(
+            f"""
+            WARNING: Bonsai position data has
+            more TTL pulses than position samples times.
+            Position samples: {len(xy_pos.columns)}
+            vs TTL times: {len(ttl_times)}
+            Removing {len(ttl_times) - len(xy_pos.columns)}
+            TTL pulses from the end of TTL times.
+            Data may be up to
+            {(len(ttl_times) - len(xy_pos.columns))/pos_sampling_rate}
+                seconds out of sync.
+            """
+        )
+    elif len(xy_pos.columns) > len(ttl_times):
+        print(
+            f"""
+            WARNING: Bonsai position data has
+            more position samples than TTL pulses.
+            Position samples: {len(xy_pos.columns)}
+            vs TTL times: {len(ttl_times)}
+            Removing {len(xy_pos.columns) - len(ttl_times)}
+            position samples from the end of position data.
+            Data may be up to
+            {(len(xy_pos.columns) - len(ttl_times))/pos_sampling_rate}
+                seconds out of sync.
+            """
+        )
+        xy_pos = xy_pos.iloc[:, : len(ttl_times)]
+        xy_pos.columns = ttl_times
+        speed = speed[: len(ttl_times)]
+        direction_disp = direction_disp[: len(ttl_times)]
