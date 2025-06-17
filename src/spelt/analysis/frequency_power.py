@@ -340,3 +340,69 @@ def plot_spectrogram(
     plt.tight_layout()
 
     return fig, (ax1, ax2)
+
+
+def compute_power_by_cycle(
+    signal: np.ndarray,
+    cycle_numbers: np.ndarray,
+    lfp_sampling_rate: float,
+    f_min: float,
+    f_max: float,
+    f_bins: int = 100,
+    channel_axis: int = -1,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute power spectrum for each cycle in a given frequency band using vectorized operations.
+
+    Parameters:
+    -----------
+    signal : np.ndarray
+        Array of signal data. Can be 1D (samples) or 2D (samples, channels)
+    cycle_numbers : np.ndarray
+        Array of cycle numbers for each sample
+    lfp_sampling_rate : float
+        Sampling rate of the signal in Hz
+    f_min : float
+        Minimum frequency for analysis
+    f_max : float
+        Maximum frequency for analysis
+    f_bins : int, optional
+        Number of frequency bins between f_min and f_max (default: 100)
+    channel_axis : int, optional
+        Axis containing channel data if signal is multi-channel (default: -1)
+
+    Returns:
+    --------
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        - Array of power spectra for each cycle (cycles x frequencies)
+        - Array of cycle numbers
+        - Array of frequencies
+    """
+    # Generate frequency bins
+    frequencies = np.linspace(f_min, f_max, f_bins)
+
+    # Get unique cycles, excluding NaN
+    unique_cycles = np.unique(cycle_numbers[~np.isnan(cycle_numbers)])
+
+    # Compute wavelet transform for the entire signal
+    wavelet_coeffs = complex_morlet_wavelet_transform(
+        signal, frequencies, lfp_sampling_rate
+    )
+
+    # Compute power (magnitude squared) for all time points
+    power = np.abs(wavelet_coeffs) ** 2
+
+    # Create a mask array for each cycle
+    cycle_masks = np.array([cycle_numbers == cycle for cycle in unique_cycles])
+
+    # Handle multi-channel data if present
+    if len(power.shape) == 3:  # If we have multiple channels
+        power = power.mean(axis=channel_axis)  # Average across channels
+
+    # Transpose power to (time, frequencies) to match cycle_masks dimension
+    power = power.T
+
+    # For each cycle mask, compute mean power across time points for each frequency
+    cycle_powers = np.array([np.mean(power[mask], axis=0) for mask in cycle_masks])
+
+    return cycle_powers, unique_cycles, frequencies
