@@ -15,7 +15,7 @@ def find_peak_frequency(
     Parameters:
     -----------
     signal_data : np.ndarray
-        Array of signal data with shape (samples, channels).
+        Array of signal data with shape (samples,) or (samples, channels).
     sampling_rate : float
         The sampling rate of the signals in Hz.
     freq_range : Tuple[float, float]
@@ -25,13 +25,33 @@ def find_peak_frequency(
     average_channels : bool, optional
         If True, returns a single peak frequency from the average power spectrum.
         If False, returns peak frequency for each channel. Default is False.
+        Only used when signal_data is 2D.
 
     Returns:
     --------
     np.ndarray
-        Array containing the frequency with peak power in the specified range
-        for each channel, or a single value if average_channels=True.
+        Array containing the frequency with peak power in the specified range.
+        For 1D input, returns a single value. For 2D input, returns peak frequency
+        for each channel or a single value if average_channels=True.
     """
+    # Handle 1D input
+    if signal_data.ndim == 1:
+        freq_values, power_spectrum = welch(
+            signal_data, fs=sampling_rate, nperseg=nperseg
+        )
+
+        # Get indices for the requested frequency range
+        range_mask = (freq_values >= freq_range[0]) & (freq_values <= freq_range[1])
+        if not np.any(range_mask):
+            return np.array([np.nan])
+
+        # Filter frequencies to the specified range
+        range_freqs = freq_values[range_mask]
+        range_power = power_spectrum[range_mask]
+
+        return np.array([range_freqs[np.argmax(range_power)]])
+
+    # Handle 2D input
     num_channels = signal_data.shape[1]
 
     # Initialize frequency values

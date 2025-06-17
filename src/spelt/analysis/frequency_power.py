@@ -11,16 +11,13 @@ def complex_morlet_wavelet_transform(
     Apply the complex Morlet wavelet transform to a signal for a range of frequencies
     using PyWavelets for efficient computation.
 
-    This implementation replaces the deprecated scipy.signal.morlet function with PyWavelets.
-    PyWavelets handles the Fourier-based convolution internally for optimal performance.
-
     Parameters:
     - signal (numpy.ndarray): The input signal (time series).
-    - frequencies (numpy.ndarray): Array of frequencies for which to compute the transform.
+    - frequencies (numpy.ndarray): Array of frequencies to compute the transform over.
     - fs (float): Sampling frequency of the input signal.
 
     Returns:
-    - numpy.ndarray: An array of wavelet coefficients, with dimensions (frequencies x time).
+    - numpy.ndarray: An array of wavelet coefficients, with shape (frequencies x time).
     """
     # Convert frequencies to scales for the wavelet transform
     # For a complex Morlet wavelet with center frequency 1.0 and bandwidth 1.5
@@ -43,8 +40,8 @@ def calculate_morlet_df(
 ) -> pd.DataFrame:
     """
     Takes dataframe of LFP data with theta cycles and traversal indices
-    FOR A GIVEN CHANNEL, calculates frequency power across wavelengths for each traversal individually
-    and adds to the dataframe.
+    FOR A GIVEN CHANNEL, calculates frequency power across wavelengths
+    for each traversal individually and adds to the dataframe.
 
     Parameters:
     - arm_cycle_df (pandas.DataFrame): DataFrame containing LFP data
@@ -71,7 +68,7 @@ def calculate_morlet_df(
     # Initialize output dataframe
     morlet_df = pd.DataFrame(np.nan, index=frequencies, columns=arm_cycle_df.columns)
 
-    # Loop through traversals and calculate complex Morlet wavelet transform for each channel
+    # Loop through traversals and calculate wavelet transform for each channel
     for traversal in range(traversals):
         # Select traversal data from dataframe
         traversal_data = channel_lfp[traversal_index == traversal]
@@ -113,7 +110,7 @@ def plot_wavelet_power_spectrum_theta(
     Plot a power spectrum across theta phase from the wavelet coefficients.
 
     Parameters:
-    - wavelet_coeffs: Wavelet coefficients as returned by complex_morlet_wavelet_transform.
+    - wavelet_coeffs: Wavelet coefficients returned by complex_morlet_wavelet_transform.
                       2D array of frequencies x timestamps
     - theta_phase: 1D numpy array corresponding to theta phase for each timestamp
     - n_theta_bins: number of theta bins to separate data into for plotting
@@ -196,6 +193,8 @@ def plot_spectrogram(
     cmap: str = "viridis",
     fig=None,
     title: str = None,
+    vmin: float = None,
+    vmax: float = None,
 ):
     """
     Compute and plot power spectra across time windows.
@@ -232,6 +231,10 @@ def plot_spectrogram(
         Figure object to plot on. If None, creates a new figure
     title : str, optional
         Title for the plot
+    vmin : float, optional
+        Minimum value for the color scale
+    vmax : float, optional
+        Maximum value for the color scale
 
     Returns:
     --------
@@ -304,7 +307,9 @@ def plot_spectrogram(
 
     # Plot spectrogram
     ax1 = fig.add_subplot(211)
-    im = ax1.pcolormesh(times, freqs, all_psds.T, shading="gouraud", cmap=cmap)
+    im = ax1.pcolormesh(
+        times, freqs, all_psds.T, shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax
+    )
     ax1.set_ylabel("Frequency (Hz)")
     ax1.set_xlabel("Time (s)")
     plt.colorbar(im, ax=ax1, label="Power" + " (dB)" if db_scale else "")
