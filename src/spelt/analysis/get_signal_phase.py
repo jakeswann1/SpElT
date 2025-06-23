@@ -9,13 +9,14 @@ def get_signal_phase(
     clip_value: float = 0,
     filt_half_bandwidth: float = 2,
     power_thresh: float = 5,
+    cycle_start: str = "peak",
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Efficiently calculates the signal phase timeseries from an LFP signal.
     Vectorized implementation that handles both 1D and 2D inputs.
     Supports channel-specific peak frequencies.
 
-    Pi radians is the signal trough. 0/2pi radians is the signal peak.
+    Pi radians is the signal trough. 0 (and 2pi) radians is the signal peak.
     pi/2 is the descending zero crossing, and 3pi/2 is the ascending zero crossing.
 
     Parameters:
@@ -34,6 +35,9 @@ def get_signal_phase(
         Half bandwidth for filtering. Default is 2 Hz.
     power_thresh : float, optional
         Threshold (percentile) for minimum power per cycle. Default is 5.
+    cycle_start : str, optional
+        Where to start counting cycles from. Either 'peak' (0 radians) or 'trough' (pi radians).
+        Default is 'peak'.
 
     Returns:
     --------
@@ -43,6 +47,9 @@ def get_signal_phase(
         - cycle_numbers: Cycle number for each sample, with bad cycles set to NaN.
           Same shape as input lfp.
     """
+    if cycle_start not in ["peak", "trough"]:
+        raise ValueError("cycle_start must be either 'peak' or 'trough'")
+
     # Handle both 1D and 2D inputs
     input_is_1d = lfp.ndim == 1
     if input_is_1d:
@@ -100,7 +107,12 @@ def get_signal_phase(
         # Identify phase transitions efficiently
         phase_diff = np.diff(signal_phase)
         phase_transitions = np.zeros(n_samples, dtype=bool)
-        phase_transitions[1:] = phase_diff < -np.pi
+
+        # Set transition point based on cycle_start parameter
+        if cycle_start == "peak":
+            phase_transitions[1:] = phase_diff < -np.pi
+        else:  # cycle_start == "trough"
+            phase_transitions[1:] = np.abs(phase_diff) > np.pi
 
         # Get cycle numbers efficiently
         cycle_numbers = np.cumsum(phase_transitions)

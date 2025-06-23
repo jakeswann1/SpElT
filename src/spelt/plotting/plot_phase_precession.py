@@ -209,4 +209,6 @@ def visualize_place_fields(
 
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+
+    return fig, ax1, ax2 if "ax2" in locals() else None

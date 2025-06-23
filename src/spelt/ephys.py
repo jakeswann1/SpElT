@@ -261,7 +261,7 @@ class ephys:  # noqa: N801
         Normalize trial list input to a list of integers.
 
         Args:
-            trial_list: The trial list to normalize. Can be an integer, list of integers, or None.
+            trial_list: The trial list to normalize. Can be an int, list[int], or None.
             data_type: The type of data being loaded (e.g., "position", "lfp", "ttl").
 
         Returns:
@@ -293,9 +293,7 @@ class ephys:  # noqa: N801
 
         data_attr = self._data_type_map[data_type]
         if not reload_flag and getattr(self, data_attr)[trial_iterator] is not None:
-            print(
-                f"{data_type.capitalize()} data already loaded for trial {trial_iterator}"
-            )
+            print(f"{data_type.capitalize()} already loaded for trial {trial_iterator}")
             return False
         return True
 
@@ -322,9 +320,10 @@ class ephys:  # noqa: N801
         Can load from Axona .pos files or Bonsai/DeepLabCut .csv files
 
         Args:
-            trial_list: The index of the trial(s) for which position data is to be loaded.
+            trial_list: The trial indices to be loaded.
             output_flag: if True, print a statement when loading the pos file
-            reload_flag: if True, forces reloading of data. If false, only loads data for trials with no position data loaded
+            reload_flag: if True, forces reloading of data. If false, only loads data
+                for trials with no position data loaded
 
         Populates:
             self.pos_data (list): A list that stores position data for each trial.
@@ -510,7 +509,6 @@ class ephys:  # noqa: N801
         self, path: Path, trial_iterator: int, output_flag: bool
     ) -> dict:
         """Load position data from Axona format."""
-        from .axona_utils.load_pos_axona import load_pos_axona
         from .axona_utils.postprocess_pos_data import postprocess_pos_data
 
         override_ppm = 615 if "t-maze" in self.trial_list[trial_iterator] else None
@@ -552,8 +550,8 @@ class ephys:  # noqa: N801
         trial_iterator: int,
     ) -> tuple:
         """Load raw Axona position data from various file formats."""
-        from .axona_utils.load_pos_axona import load_pos_axona
         from .axona_utils.axona_preprocessing import pos_from_bin
+        from .axona_utils.load_pos_axona import load_pos_axona
         from .axona_utils.postprocess_pos_data import write_csv_from_pos
 
         try:
@@ -576,11 +574,6 @@ class ephys:  # noqa: N801
         self, path: Path, trial_iterator: int, tracking_type: str, output_flag: bool
     ) -> dict:
         """Load position data from Bonsai format."""
-        from .np2_utils.load_pos_bonsai import load_pos_bonsai_isa, load_pos_bonsai_jake
-        from .np2_utils.postprocess_pos_data_np2 import (
-            postprocess_bonsai_jake,
-            sync_bonsai_jake,
-        )
 
         if self.sync_data[trial_iterator] is None:
             self.load_ttl(trial_iterator, output_flag=False)
