@@ -36,8 +36,8 @@ def get_signal_phase(
     power_thresh : float, optional
         Threshold (percentile) for minimum power per cycle. Default is 5.
     cycle_start : str, optional
-        Where to start counting cycles from. Either 'peak' (0 radians) or 'trough' (pi radians).
-        Default is 'peak'.
+        Where to start counting cycles from.
+        Either 'peak' (0 radians) or 'trough' (pi radians). Default is 'peak'.
 
     Returns:
     --------

@@ -307,11 +307,17 @@ def plot_spectrogram(
 
     # Plot spectrogram
     ax1 = fig.add_subplot(211)
-    im = ax1.pcolormesh(
-        times, freqs, all_psds.T, shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax
+    # im = ax1.pcolormesh(
+    #     times, freqs, all_psds.T, shading="gouraud", cmap=cmap, vmin=vmin, vmax=vmax
+    # )
+    # alternate plotting method - contour plot
+    im = ax1.contourf(
+        times, freqs, all_psds.T, levels=100, cmap=cmap, vmin=vmin, vmax=vmax
     )
+
     ax1.set_ylabel("Frequency (Hz)")
     ax1.set_xlabel("Time (s)")
+    ax1.set_ylim(f_min, f_max)
     plt.colorbar(im, ax=ax1, label="Power" + " (dB)" if db_scale else "")
 
     # Plot mean power spectrum
