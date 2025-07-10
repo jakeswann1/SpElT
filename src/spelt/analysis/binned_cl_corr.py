@@ -9,10 +9,16 @@ from numba import jit
 
 @jit(nopython=True)
 def _fast_circular_mean(phases):
-    """Fast circular mean computation using numba."""
+    """Fast circular mean computation - returns [0, 2π] to match input range."""
     cos_sum = np.sum(np.cos(phases))
     sin_sum = np.sum(np.sin(phases))
-    return np.arctan2(sin_sum, cos_sum)
+    mean_angle = np.arctan2(sin_sum, cos_sum)
+
+    # Convert to [0, 2π] to match input range
+    if mean_angle < 0:
+        mean_angle += 2 * np.pi
+
+    return mean_angle
 
 
 @jit(nopython=True)
@@ -151,22 +157,95 @@ def binned_cl_corr(
     return circ_lin_corr, result_stat, slope, phi0, RR
 
 
+def _find_best_phase_reference(x: np.ndarray, phase: np.ndarray) -> np.ndarray:
+    """
+    Try each bin as reference (phase = 0) and find which gives the best linear fit.
+
+    This systematically handles phase wrapping by testing all possible reference points
+    and choosing the one that produces the most linear relationship.
+
+    Handles the case where bin means are in [-π, π] range (from arctan2)
+    but we need to work in [0, 2π] range for unwrapping.
+    """
+    if len(phase) < 3:
+        return phase
+
+    # Convert bin means from [-π, π] to [0, 2π] range for consistent unwrapping
+    # This is needed because circular mean calculation uses arctan2() which returns [-π, π]
+    phase_0_to_2pi = phase.copy()  # Already in [0, 2π]
+
+    best_r_squared = -1
+    best_adjusted_phases = phase_0_to_2pi.copy()
+
+    # Try each bin as the reference point
+    for ref_idx in range(len(phase_0_to_2pi)):
+        try:
+            # Make this bin the reference (subtract its phase from all phases)
+            adjusted_phases = phase_0_to_2pi - phase_0_to_2pi[ref_idx]
+
+            # Wrap to [0, 2π] after adjustment
+            adjusted_phases = adjusted_phases % (2 * np.pi)
+
+            # Now unwrap relative to this reference
+            adjusted_phases = np.unwrap(adjusted_phases)
+
+            # Test the linearity of this adjustment
+            x_norm = (x - x[0]) / (x[-1] - x[0]) if x[-1] != x[0] else np.zeros_like(x)
+
+            # Quick linear regression to test quality
+            n = len(x_norm)
+            sum_x = np.sum(x_norm)
+            sum_y = np.sum(adjusted_phases)
+            sum_xy = np.sum(x_norm * adjusted_phases)
+            sum_x2 = np.sum(x_norm * x_norm)
+
+            denominator = sum_x2 - (sum_x * sum_x) / n
+            if abs(denominator) > 1e-10:
+                slope = (sum_xy - (sum_x * sum_y) / n) / denominator
+                intercept = (sum_y - slope * sum_x) / n
+
+                # Calculate R-squared
+                predicted = slope * x_norm + intercept
+                ss_res = np.sum((adjusted_phases - predicted) ** 2)
+                ss_tot = np.sum((adjusted_phases - np.mean(adjusted_phases)) ** 2)
+
+                if ss_tot > 0:
+                    r_squared = 1 - (ss_res / ss_tot)
+
+                    # This reference point gives better linearity
+                    if r_squared > best_r_squared:
+                        best_r_squared = r_squared
+                        best_adjusted_phases = adjusted_phases.copy()
+
+        except Exception:
+            # Skip this reference if it causes problems
+            continue
+
+    return best_adjusted_phases
+
+
 def _optimized_cl_regression(
     x: np.ndarray, phase: np.ndarray, min_slope: float, max_slope: float
 ) -> tuple[float, float, float]:
-    """Optimized circular-linear regression with phase unwrapping."""
+    """Optimized circular-linear regression with systematic phase reference testing."""
 
-    # Unwrap the phases before regression to handle 2π discontinuities
-    phase_unwrapped = np.unwrap(phase)
+    try:
+        # Find the best phase reference point
+        phase_unwrapped = _find_best_phase_reference(x, phase)
 
-    # Use simple linear regression on unwrapped data
-    # This should match the manual calculation
+    except Exception:
+        # Fallback to standard unwrapping if reference method fails
+        try:
+            phase_unwrapped = np.unwrap(phase)
+        except:
+            phase_unwrapped = phase
+
+    # Use simple linear regression on the best-adjusted phases
     try:
         # Normalize positions to 0-1 range
         x_norm = (x - x[0]) / (x[-1] - x[0]) if x[-1] != x[0] else np.zeros_like(x)
 
         # Standard linear regression: y = mx + b
-        # Using least squares: slope = Σ(x*y) - n*mean(x)*mean(y) / Σ(x²) - n*mean(x)²
         n = len(x_norm)
         sum_x = np.sum(x_norm)
         sum_y = np.sum(phase_unwrapped)
@@ -199,7 +278,6 @@ def _optimized_cl_regression(
 
         # Check if slope is within reasonable bounds
         if slope < min_slope or slope > max_slope:
-            # If outside bounds, return NaN to indicate failure
             slope = np.nan
             phi0 = np.nan
             RR = np.nan
