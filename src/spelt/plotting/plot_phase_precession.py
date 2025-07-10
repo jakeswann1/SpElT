@@ -12,10 +12,23 @@ def visualize_place_fields(
     spike_positions: np.ndarray | None = None,
     spike_phases: np.ndarray | None = None,
     field_phase_correlations: list | None = None,
+    show_binned_analysis: bool = True,
 ) -> None:
     """
     Visualize place fields with phase precession.
     Will plot spike position vs phase even if no fields are detected.
+
+    Args:
+        rate_map: 1D firing rate map
+        fields: List of (start_bin, end_bin) tuples for detected fields
+        smoothed_map: Smoothed version of rate map
+        spatial_bin_size_cm: Size of spatial bins in cm
+        metrics: Dictionary containing field detection metrics
+        title: Plot title
+        spike_positions: Array of spike positions
+        spike_phases: Array of spike phases
+        field_phase_correlations: List of correlation results for each field
+        show_binned_analysis: Whether to show binned circular means and bin edges
     """
     positions = np.arange(len(rate_map)) * spatial_bin_size_cm
 
@@ -74,6 +87,7 @@ def visualize_place_fields(
             c="k",
             alpha=0.6,
             marker=".",
+            label="Individual Spikes",
         )
         ax2.scatter(
             spike_positions,
@@ -109,6 +123,24 @@ def visualize_place_fields(
 
                     normalized_positions[i] = norm_pos
                     normalized_phases[i] = field_spike_phases
+
+                    # Show binned analysis if requested
+                    if (
+                        show_binned_analysis
+                        and field_phase_correlations
+                        and i < len(field_phase_correlations)
+                    ):
+                        if (
+                            field_phase_correlations[i] is not None
+                            and "bin_data" in field_phase_correlations[i]
+                        ):
+                            _add_regression_bin_visualization(
+                                ax2,
+                                field_phase_correlations[i]["bin_data"],
+                                field_min_cm,
+                                field_max_cm,
+                                i,
+                            )
 
             # Mark field boundaries with colored dashed lines (like MATLAB)
             for start_bin, end_bin in fields:
@@ -157,14 +189,40 @@ def visualize_place_fields(
                     # Plot with MATLAB-style color and line style based on significance
                     if p_val < 0.05:
                         line_style = "g-"  # Green solid line for significant
+                        line_label = (
+                            f"Regression Field {i+1} (p<0.05)" if i == 0 else None
+                        )
                     else:
                         line_style = "r--"  # Red dashed line for non-significant
-
-                    # Plot multiple copies offset by 2π, similar to MATLAB approach
-                    for offset in [0, 2 * np.pi, 4 * np.pi]:
-                        ax2.plot(
-                            x_for_line, line_phases + offset, line_style, linewidth=2
+                        line_label = (
+                            f"Regression Field {i+1} (n.s.)" if i == 0 else None
                         )
+
+                    # Plot regression lines in each 2π range separately
+                    # This ensures the line fits properly within each phase range
+                    for j, phase_range in enumerate(
+                        [(0, 2 * np.pi), (2 * np.pi, 4 * np.pi)]
+                    ):
+                        range_min, range_max = phase_range
+
+                        # Wrap the predicted phases to this 2π range
+                        wrapped_phases = (line_phases % (2 * np.pi)) + range_min
+
+                        # Only show label for first range
+                        label = line_label if j == 0 else None
+
+                        # Check if any part of the line falls within this range
+                        if np.any(
+                            (wrapped_phases >= range_min)
+                            & (wrapped_phases <= range_max)
+                        ):
+                            ax2.plot(
+                                x_for_line,
+                                wrapped_phases,
+                                line_style,
+                                linewidth=2,
+                                label=label,
+                            )
 
         # Set y-axis limits and ticks - do this regardless of fields
         ax2.set_ylim(0, 4 * np.pi)  # MATLAB uses 0 to 4π
@@ -204,11 +262,106 @@ def visualize_place_fields(
     ]
     visible_labels1 = [label for label in labels1 if not label.startswith("_")]
 
-    if visible_handles1:
-        ax1.legend(visible_handles1, visible_labels1, loc="upper right")
+    # Add phase axis legend if it exists
+    legend_handles = visible_handles1
+    legend_labels = visible_labels1
+
+    if "ax2" in locals():
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        visible_handles2 = [
+            handle
+            for label, handle in zip(labels2, handles2)
+            if not label.startswith("_")
+        ]
+        visible_labels2 = [label for label in labels2 if not label.startswith("_")]
+        legend_handles.extend(visible_handles2)
+        legend_labels.extend(visible_labels2)
+
+    if legend_handles:
+        ax1.legend(legend_handles, legend_labels, loc="upper right")
 
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     # plt.show()
 
     return fig, ax1, ax2 if "ax2" in locals() else None
+
+
+def _add_regression_bin_visualization(
+    ax2: plt.Axes,
+    bin_data: dict,
+    field_min_cm: float,
+    field_max_cm: float,
+    field_idx: int,
+) -> None:
+    """
+    Add visualization of the actual binned data used for regression.
+
+    Args:
+        ax2: Phase axis to plot on
+        bin_data: Dictionary containing bin data from binned_cl_corr
+        field_min_cm: Field minimum position in cm (for context)
+        field_max_cm: Field maximum position in cm (for context)
+        field_idx: Index of the field (for coloring)
+    """
+    # Extract the actual data used for regression
+    bin_centers = bin_data.get("bin_centers", [])
+    bin_means = bin_data.get("bin_means", [])
+    bin_counts = bin_data.get("bin_counts", [])
+    bin_edges = bin_data.get("bin_edges", [])
+
+    if len(bin_centers) < 3:
+        return  # Not enough valid bins
+
+    bin_centers = np.array(bin_centers)
+    bin_means = np.array(bin_means)
+    bin_counts = np.array(bin_counts)
+
+    # Choose colors that contrast with existing elements
+    bin_colors = ["orange", "purple", "brown", "pink", "olive"]
+    color = bin_colors[field_idx % len(bin_colors)]
+
+    # Plot bin edges as vertical lines (only the ones that were actually used)
+    for edge in bin_edges:
+        if field_min_cm <= edge <= field_max_cm:  # Only show edges within the field
+            ax2.axvline(x=edge, color=color, linestyle=":", alpha=0.4, linewidth=1)
+
+    # Plot circular means for each valid bin (the actual regression data points)
+    # Scale marker size based on spike count in bin
+    min_count = np.min(bin_counts)
+    marker_sizes = 50 + (bin_counts - min_count) * 10  # Base size + scaling
+
+    # Plot bin means in both phase ranges (0-2π and 2π-4π)
+    for offset in [0, 2 * np.pi]:
+        # Adjust phases to be in the correct range
+        plot_phases = bin_means % (2 * np.pi) + offset
+
+        scatter = ax2.scatter(
+            bin_centers,
+            plot_phases,
+            s=marker_sizes,
+            c=color,
+            marker="o",
+            alpha=0.8,
+            edgecolors="black",
+            linewidth=1,
+            label=f"Regression Data Field {field_idx+1}" if offset == 0 else None,
+            zorder=5,  # Plot on top of other elements
+        )
+
+    # Add text annotation for this field's binning info
+    text_y = 3.5 * np.pi - field_idx * 0.3 * np.pi  # Stagger text for multiple fields
+    text_x = field_min_cm + 0.05 * (field_max_cm - field_min_cm)
+
+    n_bins_used = bin_data.get("n_bins_used", len(bin_centers))
+    n_bins_requested = bin_data.get("n_bins_requested", 10)
+
+    ax2.text(
+        text_x,
+        text_y,
+        f"Field {field_idx+1}: {n_bins_used}/{n_bins_requested} bins",
+        fontsize=9,
+        color=color,
+        weight="bold",
+        bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+    )
