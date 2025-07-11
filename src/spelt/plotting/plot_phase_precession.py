@@ -153,76 +153,11 @@ def visualize_place_fields(
                         x=positions[end_bin], color="m", linestyle="--", alpha=0.5
                     )
 
-            # Plot phase precession regression lines
+            # Plot phase precession regression lines with proper wrapping handling
             if field_phase_correlations:
-                for i, (start_bin, end_bin) in enumerate(fields):
-                    if (
-                        start_bin >= len(positions)
-                        or end_bin >= len(positions)
-                        or start_bin > end_bin
-                        or i >= len(field_phase_correlations)
-                        or field_phase_correlations[i] is None
-                    ):
-                        continue
-
-                    corr_data = field_phase_correlations[i]
-                    slope = corr_data["slope"]
-                    phi0 = corr_data["phi0"]
-                    p_val = corr_data.get(
-                        "p_val", 1.0
-                    )  # Default to 1.0 if not provided
-
-                    field_min_cm = positions[start_bin]
-                    field_max_cm = positions[end_bin]
-
-                    # Use normalized positions (0-1) for the regression line
-                    x_for_line = np.array([field_min_cm, field_max_cm])
-
-                    # Calculate regression phase values
-                    line_phases = (
-                        slope
-                        * (x_for_line - field_min_cm)
-                        / (field_max_cm - field_min_cm)
-                        + phi0
-                    )
-
-                    # Plot with MATLAB-style color and line style based on significance
-                    if p_val < 0.05:
-                        line_style = "g-"  # Green solid line for significant
-                        line_label = (
-                            f"Regression Field {i+1} (p<0.05)" if i == 0 else None
-                        )
-                    else:
-                        line_style = "r--"  # Red dashed line for non-significant
-                        line_label = (
-                            f"Regression Field {i+1} (n.s.)" if i == 0 else None
-                        )
-
-                    # Plot regression lines in each 2π range separately
-                    # This ensures the line fits properly within each phase range
-                    for j, phase_range in enumerate(
-                        [(0, 2 * np.pi), (2 * np.pi, 4 * np.pi)]
-                    ):
-                        range_min, range_max = phase_range
-
-                        # Wrap the predicted phases to this 2π range
-                        wrapped_phases = (line_phases % (2 * np.pi)) + range_min
-
-                        # Only show label for first range
-                        label = line_label if j == 0 else None
-
-                        # Check if any part of the line falls within this range
-                        if np.any(
-                            (wrapped_phases >= range_min)
-                            & (wrapped_phases <= range_max)
-                        ):
-                            ax2.plot(
-                                x_for_line,
-                                wrapped_phases,
-                                line_style,
-                                linewidth=2,
-                                label=label,
-                            )
+                _plot_phase_regression_lines_fixed(
+                    ax2, field_phase_correlations, fields, positions
+                )
 
         # Set y-axis limits and ticks - do this regardless of fields
         ax2.set_ylim(0, 4 * np.pi)  # MATLAB uses 0 to 4π
@@ -287,6 +222,202 @@ def visualize_place_fields(
     return fig, ax1, ax2 if "ax2" in locals() else None
 
 
+def _plot_phase_regression_lines_fixed(
+    ax2, field_phase_correlations, fields, positions
+):
+    """
+    FIXED: Properly plot phase precession regression lines handling wrapping
+    """
+    for i, (start_bin, end_bin) in enumerate(fields):
+        if (
+            start_bin >= len(positions)
+            or end_bin >= len(positions)
+            or start_bin > end_bin
+            or i >= len(field_phase_correlations)
+            or field_phase_correlations[i] is None
+        ):
+            continue
+
+        corr_data = field_phase_correlations[i]
+        slope = corr_data["slope"]
+        phi0 = corr_data["phi0"]
+        p_val = corr_data.get("p_val", 1.0)
+
+        # Get bin data for proper unwrapping
+        bin_data = corr_data.get("bin_data", {})
+        bin_centers = bin_data.get("bin_centers", [])
+        bin_means = bin_data.get("bin_means", [])
+
+        field_min_cm = positions[start_bin]
+        field_max_cm = positions[end_bin]
+
+        # Determine line style based on significance
+        if p_val < 0.05:
+            line_style = "-"  # Green solid line for significant
+            line_color = "green"
+            line_label = f"Regression Field {i+1} (p<0.05)" if i == 0 else None
+        else:
+            line_style = "--"  # Red dashed line for non-significant
+            line_color = "red"
+            line_label = f"Regression Field {i+1} (n.s.)" if i == 0 else None
+
+        # FIXED METHOD: Use the actual bin data to determine proper unwrapping
+        if len(bin_centers) >= 3 and len(bin_means) >= 3:
+            # Method 1: Use the bin means to guide the unwrapping
+            try:
+                # Unwrap the actual bin means to get the true continuous progression
+                unwrapped_bin_means = np.unwrap(np.array(bin_means))
+
+                # Create high-resolution line for smooth plotting
+                x_fine = np.linspace(field_min_cm, field_max_cm, 200)
+                x_fine_norm = (x_fine - field_min_cm) / (field_max_cm - field_min_cm)
+
+                # Generate line in unwrapped space using the regression parameters
+                # The slope and phi0 from the regression already account for unwrapping
+                line_phases_unwrapped = slope * x_fine_norm + phi0
+
+                # Key insight: The regression was fit to properly unwrapped data,
+                # so we need to maintain that continuity when plotting
+
+                # Check if we have a wrapping case by looking at the range
+                bin_phase_range = np.ptp(bin_means)
+                unwrapped_range = np.ptp(unwrapped_bin_means)
+
+                if bin_phase_range > 1.5 * np.pi and unwrapped_range > bin_phase_range:
+                    # This is a wrapping case - the regression was fit to unwrapped data
+                    # We need to use the unwrapped bin means to determine the offset
+
+                    # Find the offset between our regression line and the unwrapped bins
+                    bin_x_norm = (np.array(bin_centers) - field_min_cm) / (
+                        field_max_cm - field_min_cm
+                    )
+                    regression_at_bins = slope * bin_x_norm + phi0
+
+                    # Calculate the offset needed to align with unwrapped data
+                    # Use the first bin as reference point
+                    offset = unwrapped_bin_means[0] - regression_at_bins[0]
+
+                    # Apply this offset to the display line
+                    display_line = line_phases_unwrapped + offset
+
+                else:
+                    # Normal case - use the original regression line
+                    display_line = line_phases_unwrapped
+
+                # Plot in both phase ranges (0-2π and 2π-4π)
+                for phase_offset in [0, 2 * np.pi]:
+                    # Map to this display range
+                    display_phases = (display_line % (2 * np.pi)) + phase_offset
+
+                    # Always split into continuous segments to avoid vertical lines
+                    segments = _split_wrapped_line(
+                        x_fine, display_phases, max_jump=np.pi
+                    )
+
+                    for j, (seg_x, seg_y) in enumerate(segments):
+                        if len(seg_x) >= 2:  # Only plot segments with multiple points
+                            label = (
+                                line_label if (phase_offset == 0 and j == 0) else None
+                            )
+                            ax2.plot(
+                                seg_x,
+                                seg_y,
+                                line_style,
+                                linewidth=2,
+                                color=line_color,
+                                alpha=0.8,
+                                label=label,
+                            )
+
+            except Exception as e:
+                print(f"Warning: Could not plot regression line for field {i+1}: {e}")
+                # Fallback to simple method
+                _plot_simple_regression_line(
+                    ax2,
+                    slope,
+                    phi0,
+                    field_min_cm,
+                    field_max_cm,
+                    line_style,
+                    line_color,
+                    line_label,
+                )
+        else:
+            # Fallback for cases without sufficient bin data
+            _plot_simple_regression_line(
+                ax2,
+                slope,
+                phi0,
+                field_min_cm,
+                field_max_cm,
+                line_style,
+                line_color,
+                line_label,
+            )
+
+
+def _split_wrapped_line(x, y, max_jump=np.pi):
+    """
+    Split x,y data into continuous segments where y doesn't jump by more than max_jump
+    """
+    if len(x) < 2:
+        return [(x, y)]
+
+    segments = []
+    current_x = [x[0]]
+    current_y = [y[0]]
+
+    for i in range(1, len(x)):
+        # Check if there's a large jump in y (indicating wrapping)
+        y_diff = abs(y[i] - y[i - 1])
+
+        # Detect both upward and downward wrapping
+        is_wrap_jump = (y_diff > max_jump) or (y_diff > 1.5 * np.pi)
+
+        if is_wrap_jump:
+            # End current segment if it has enough points
+            if len(current_x) >= 2:  # Reduced minimum for better segment capture
+                segments.append((np.array(current_x), np.array(current_y)))
+            # Start new segment
+            current_x = [x[i]]
+            current_y = [y[i]]
+        else:
+            # Continue current segment
+            current_x.append(x[i])
+            current_y.append(y[i])
+
+    # Add final segment if it has enough points
+    if len(current_x) >= 2:
+        segments.append((np.array(current_x), np.array(current_y)))
+
+    return segments
+
+
+def _plot_simple_regression_line(
+    ax2, slope, phi0, field_min_cm, field_max_cm, line_style, line_color, line_label
+):
+    """
+    Fallback simple regression line plotting
+    """
+    x_for_line = np.linspace(field_min_cm, field_max_cm, 100)
+    x_norm = (x_for_line - field_min_cm) / (field_max_cm - field_min_cm)
+    line_phases = slope * x_norm + phi0
+
+    # Plot in both ranges
+    for phase_offset in [0, 2 * np.pi]:
+        wrapped_phases = (line_phases % (2 * np.pi)) + phase_offset
+        label = line_label if phase_offset == 0 else None
+        ax2.plot(
+            x_for_line,
+            wrapped_phases,
+            line_style,
+            linewidth=2,
+            color=line_color,
+            alpha=0.8,
+            label=label,
+        )
+
+
 def _add_regression_bin_visualization(
     ax2: plt.Axes,
     bin_data: dict,
@@ -336,7 +467,7 @@ def _add_regression_bin_visualization(
         # Adjust phases to be in the correct range
         plot_phases = bin_means % (2 * np.pi) + offset
 
-        scatter = ax2.scatter(
+        ax2.scatter(
             bin_centers,
             plot_phases,
             s=marker_sizes,
@@ -363,5 +494,5 @@ def _add_regression_bin_visualization(
         fontsize=9,
         color=color,
         weight="bold",
-        bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+        bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "alpha": 0.7},
     )
