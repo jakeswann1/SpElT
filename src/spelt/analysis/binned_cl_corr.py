@@ -56,6 +56,31 @@ def _bin_data_fast(x, phase, bin_edges, min_spikes_per_bin):
     return (bin_positions[:valid_bins], bin_means[:valid_bins], bin_counts[:valid_bins])
 
 
+def _calculate_rmse(
+    x: np.ndarray, phase: np.ndarray, slope: float, phi0: float
+) -> float:
+    """Calculate RMSE for the fitted line."""
+    if np.isnan(slope) or np.isnan(phi0):
+        return np.nan
+
+    # Normalize x to match regression calculation
+    x_norm = (x - x[0]) / (x[-1] - x[0]) if x[-1] != x[0] else np.zeros_like(x)
+
+    # Predicted phases
+    predicted = slope * x_norm + phi0
+
+    # Calculate circular residuals
+    residuals = phase - predicted
+
+    # Handle circular differences - find minimum angular distance
+    residuals = np.arctan2(np.sin(residuals), np.cos(residuals))
+
+    # Calculate RMSE
+    rmse = np.sqrt(np.mean(residuals**2))
+
+    return rmse
+
+
 def binned_cl_corr(
     x: np.ndarray,
     phase: np.ndarray,
@@ -66,7 +91,8 @@ def binned_cl_corr(
     ci: float = 0.05,
     bootstrap_iter: int = 1000,
     return_pval: bool = False,
-    return_bin_data: bool = True,  # Changed default to True
+    return_bin_data: bool = True,
+    return_rmse: bool = False,
 ) -> tuple:
     """
     Circular-linear correlation using binned circular means to avoid firing rate bias.
@@ -77,11 +103,16 @@ def binned_cl_corr(
     - Reduced memory allocations
     - Efficient bootstrap sampling
 
+    Args:
+        return_rmse: If True, returns RMSE as the 6th element (or 7th if return_bin_data=True)
+
     Returns:
-        If return_bin_data=True (default):
-            (corr_coeff, pval_or_ci, slope, phi0, R_val, bin_data_dict)
-        If return_bin_data=False:
-            (corr_coeff, pval_or_ci, slope, phi0, R_val)
+        If return_rmse=False (default):
+            If return_bin_data=True: (corr_coeff, pval_or_ci, slope, phi0, R_val, bin_data_dict)
+            If return_bin_data=False: (corr_coeff, pval_or_ci, slope, phi0, R_val)
+        If return_rmse=True:
+            If return_bin_data=True: (corr_coeff, pval_or_ci, slope, phi0, R_val, bin_data_dict, rmse)
+            If return_bin_data=False: (corr_coeff, pval_or_ci, slope, phi0, R_val, rmse)
     """
 
     # Input validation
@@ -119,10 +150,16 @@ def binned_cl_corr(
     }
 
     if len(bin_means) < n_bins / 2:
-        # Not enough bins for reliable fitting
         nan_result = (np.nan, np.nan, np.nan, np.nan, np.nan)
+
+        # Add bin_data FIRST (to match normal return)
         if return_bin_data:
-            return nan_result + (bin_data,)
+            nan_result = nan_result + (bin_data,)
+
+        # Add RMSE SECOND (to match normal return)
+        if return_rmse:
+            nan_result = nan_result + (np.nan,)
+
         return nan_result
 
     # Fit line to binned data using optimized regression
@@ -151,10 +188,19 @@ def binned_cl_corr(
         )
         result_stat = ci_out
 
-    if return_bin_data:
-        return circ_lin_corr, result_stat, slope, phi0, RR, bin_data
+    # Base result
+    result = (circ_lin_corr, result_stat, slope, phi0, RR)
 
-    return circ_lin_corr, result_stat, slope, phi0, RR
+    # Add bin data if requested
+    if return_bin_data:
+        result = result + (bin_data,)
+
+    # Add RMSE if requested
+    if return_rmse:
+        rmse = _calculate_rmse(bin_positions, bin_means, slope, phi0)
+        result = result + (rmse,)
+
+    return result
 
 
 def _find_best_phase_reference(x: np.ndarray, phase: np.ndarray) -> np.ndarray:
