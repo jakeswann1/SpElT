@@ -1,20 +1,23 @@
 import numpy as np
+from scipy.ndimage import gaussian_filter1d
 from scipy.signal import filtfilt, firwin, hilbert
 
 
 def get_signal_phase(
     lfp: np.ndarray,
     sampling_rate: float,
-    peak_freq: float | np.ndarray,
+    peak_freq: float | np.ndarray | None = None,
     clip_value: float = 0,
     filt_half_bandwidth: float = 2,
     power_thresh: float = 5,
     cycle_start: str = "peak",
-) -> tuple[np.ndarray, np.ndarray]:
+    return_inst_freq: bool = False,
+    bandpass_range: tuple[float, float] | None = None,
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Efficiently calculates the signal phase timeseries from an LFP signal.
     Vectorized implementation that handles both 1D and 2D inputs.
-    Supports channel-specific peak frequencies.
+    Supports channel-specific peak frequencies or direct bandpass filtering.
 
     Pi radians is the signal trough. 0 (and 2pi) radians is the signal peak.
     pi/2 is the descending zero crossing, and 3pi/2 is the ascending zero crossing.
@@ -26,29 +29,43 @@ def get_signal_phase(
         Can be 1D (samples,) or 2D (samples, channels).
     sampling_rate : float
         The sampling rate of the LFP.
-    peak_freq : float or np.ndarray
+    peak_freq : float or np.ndarray, optional
         The central frequency around which the LFP is filtered.
         Can be a single value for all channels or an array with one value per channel.
+        Mutually exclusive with bandpass_range. Default is None.
     clip_value : float, optional
         The value above which the LFP is considered clipped. Default is 0.
     filt_half_bandwidth : float, optional
-        Half bandwidth for filtering. Default is 2 Hz.
+        Half bandwidth for filtering (only used with peak_freq). Default is 2 Hz.
     power_thresh : float, optional
         Threshold (percentile) for minimum power per cycle. Default is 5.
     cycle_start : str, optional
         Where to start counting cycles from.
         Either 'peak' (0 radians) or 'trough' (pi radians). Default is 'peak'.
+    return_inst_freq : bool, optional
+        If True, also return instantaneous frequency. Default is False.
+    bandpass_range : tuple[float, float], optional
+        Direct bandpass filter range as (low_freq, high_freq).
+        Mutually exclusive with peak_freq. Default is None.
 
     Returns:
     --------
-    Tuple[np.ndarray, np.ndarray]
+    Tuple[np.ndarray, np.ndarray] or Tuple[np.ndarray, np.ndarray, np.ndarray]
         - signal_phase: Signal phase (in radians) timeseries,
         with low power cycles set to NaN. Same shape as input lfp.
         - cycle_numbers: Cycle number for each sample, with bad cycles set to NaN.
           Same shape as input lfp.
+        - inst_freq: Instantaneous frequency timeseries (if return_inst_freq=True).
+          Same shape as input lfp.
     """
     if cycle_start not in ["peak", "trough"]:
         raise ValueError("cycle_start must be either 'peak' or 'trough'")
+
+    # Validate filtering parameters
+    if peak_freq is None and bandpass_range is None:
+        raise ValueError("Either peak_freq or bandpass_range must be provided")
+    if peak_freq is not None and bandpass_range is not None:
+        raise ValueError("peak_freq and bandpass_range are mutually exclusive")
 
     # Handle both 1D and 2D inputs
     input_is_1d = lfp.ndim == 1
@@ -57,26 +74,36 @@ def get_signal_phase(
 
     n_samples, n_channels = lfp.shape
 
-    # Handle peak_freq as single value or array
-    if isinstance(peak_freq, (int, float)):
-        peak_freqs = np.full(n_channels, peak_freq)
+    # Handle filtering mode
+    if peak_freq is not None:
+        # Original peak_freq mode
+        if isinstance(peak_freq, (int, float)):
+            peak_freqs = np.full(n_channels, peak_freq)
+        else:
+            peak_freqs = np.asarray(peak_freq)
+            if len(peak_freqs) != n_channels:
+                raise ValueError(
+                    f"""Length of peak_freq ({len(peak_freqs)})
+                    must match number of channels ({n_channels})"""
+                )
+        filter_ranges = [
+            (pf - filt_half_bandwidth, pf + filt_half_bandwidth) for pf in peak_freqs
+        ]
     else:
-        peak_freqs = np.asarray(peak_freq)
-        if len(peak_freqs) != n_channels:
-            raise ValueError(
-                f"""Length of peak_freq ({len(peak_freqs)})
-                must match number of channels ({n_channels})"""
-            )
+        # Direct bandpass mode
+        low_freq, high_freq = bandpass_range
+        filter_ranges = [(low_freq, high_freq)] * n_channels
 
     # Pre-allocate output arrays
     signal_phase_out = np.zeros((n_samples, n_channels))
     cycle_numbers_out = np.zeros((n_samples, n_channels), dtype=float)
+    if return_inst_freq:
+        inst_freq_out = np.zeros((n_samples, n_channels))
 
-    # Process each channel with its specific peak frequency
+    # Process each channel with its specific filter range
     for c in range(n_channels):
         # Get filter parameters for this channel
-        low_freq = peak_freqs[c] - filt_half_bandwidth
-        high_freq = peak_freqs[c] + filt_half_bandwidth
+        low_freq, high_freq = filter_ranges[c]
 
         # Optimize filter design
         filter_order = min(int(sampling_rate / 2), 1001)
@@ -103,6 +130,16 @@ def get_signal_phase(
 
         # Extract phase
         signal_phase = np.angle(analytic_signal) % (2 * np.pi)
+
+        # Calculate instantaneous frequency if requested
+        if return_inst_freq:
+            # Unwrap phase for frequency calculation
+            unwrapped_phase = np.unwrap(np.angle(analytic_signal))
+
+            smoothed_phase = gaussian_filter1d(unwrapped_phase, sigma=2)
+            inst_freq = np.gradient(smoothed_phase) * sampling_rate / (2 * np.pi)
+            # Limit to filter range
+            inst_freq[(inst_freq < low_freq) | (inst_freq > high_freq)] = np.nan
 
         # Identify phase transitions efficiently
         phase_diff = np.diff(signal_phase)
@@ -173,53 +210,110 @@ def get_signal_phase(
         channel_cycles[bad_sample_mask] = np.nan
         cycle_numbers_out[:, c] = channel_cycles
 
+        if return_inst_freq:
+            channel_inst_freq = inst_freq.copy()
+            channel_inst_freq[bad_sample_mask] = np.nan
+            inst_freq_out[:, c] = channel_inst_freq
+
     # Return with proper dimensionality
     if input_is_1d:
-        return signal_phase_out.squeeze(), cycle_numbers_out.squeeze()
+        if return_inst_freq:
+            return (
+                signal_phase_out.squeeze(),
+                cycle_numbers_out.squeeze(),
+                inst_freq_out.squeeze(),
+            )
+        else:
+            return signal_phase_out.squeeze(), cycle_numbers_out.squeeze()
     else:
-        return signal_phase_out, cycle_numbers_out
+        if return_inst_freq:
+            return signal_phase_out, cycle_numbers_out, inst_freq_out
+        else:
+            return signal_phase_out, cycle_numbers_out
 
 
 def get_spike_phase(
     lfp: np.ndarray,
     spike_times: np.ndarray,
     sampling_rate: float,
-    peak_freq: float | np.ndarray,
+    peak_freq: float | np.ndarray | None = None,
     clip_value: float = 0,
     filt_half_bandwidth: float = 2,
     power_thresh: float = 5,
     channel_idx: int = 0,
-):
+    cycle_start: str = "peak",
+    bandpass_range: tuple[float, float] | None = None,
+    return_inst_freq: bool = False,
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """
     Calculate the signal phase of spikes based on the LFP.
     Works with both 1D and 2D LFP arrays.
 
     Parameters:
-    - lfp: Local Field Potential time series (1D or 2D).
-    - spike_times: Times (in seconds) at which the spikes occurred.
-    - sampling_rate: The sampling rate of the LFP.
-    - peak_freq: Central frequency or array of central frequencies.
-    - clip_value: The value above which the LFP is considered clipped. Default is 0.
-    - filt_half_bandwidth: Half bandwidth for filtering. Default is 2 Hz.
-    - power_thresh: Threshold (percentile) for minimum power per cycle. Default is 5.
-    - channel_idx: For 2D LFP, which channel to use (default 0).
+    -----------
+    lfp : np.ndarray
+        Local Field Potential time series (1D or 2D).
+    spike_times : np.ndarray
+        Times (in seconds) at which the spikes occurred.
+    sampling_rate : float
+        The sampling rate of the LFP.
+    peak_freq : float or np.ndarray, optional
+        Central frequency or array of central frequencies.
+        Mutually exclusive with bandpass_range. Default is None.
+    clip_value : float, optional
+        The value above which the LFP is considered clipped. Default is 0.
+    filt_half_bandwidth : float, optional
+        Half bandwidth for filtering (only used with peak_freq). Default is 2 Hz.
+    power_thresh : float, optional
+        Threshold (percentile) for minimum power per cycle. Default is 5.
+    channel_idx : int, optional
+        For 2D LFP, which channel to use (default 0).
+    cycle_start : str, optional
+        Where to start counting cycles from.
+        Either 'peak' (0 radians) or 'trough' (pi radians). Default is 'peak'.
+    bandpass_range : tuple[float, float], optional
+        Direct bandpass filter range as (low_freq, high_freq).
+        Mutually exclusive with peak_freq. Default is None.
+    return_inst_freq : bool, optional
+        If True, also return instantaneous frequency at spike times. Default is False.
 
     Returns:
-    - spike_phases: phase (in radians) of spikes.
+    --------
+    np.ndarray or tuple[np.ndarray, np.ndarray]
+        spike_phases: phase (in radians) of spikes.
+        spike_inst_freq: instantaneous frequency (in Hz) at spike times
+            (if return_inst_freq=True).
     """
-    # Get phase for all channels
-    phase, _ = get_signal_phase(
-        lfp,
-        sampling_rate,
-        peak_freq,
-        clip_value=clip_value,
-        filt_half_bandwidth=filt_half_bandwidth,
-        power_thresh=power_thresh,
-    )
+    # Get phase (and optionally inst_freq) for all channels
+    if return_inst_freq:
+        phase, _, inst_freq = get_signal_phase(
+            lfp,
+            sampling_rate,
+            peak_freq=peak_freq,
+            clip_value=clip_value,
+            filt_half_bandwidth=filt_half_bandwidth,
+            power_thresh=power_thresh,
+            cycle_start=cycle_start,
+            bandpass_range=bandpass_range,
+            return_inst_freq=True,
+        )
+    else:
+        phase, _ = get_signal_phase(
+            lfp,
+            sampling_rate,
+            peak_freq=peak_freq,
+            clip_value=clip_value,
+            filt_half_bandwidth=filt_half_bandwidth,
+            power_thresh=power_thresh,
+            cycle_start=cycle_start,
+            bandpass_range=bandpass_range,
+        )
 
     # Handle dimensionality for indexing
     if phase.ndim == 1:
         selected_phase = phase
+        if return_inst_freq:
+            selected_inst_freq = inst_freq
     else:
         if channel_idx >= phase.shape[1]:
             raise ValueError(
@@ -227,22 +321,31 @@ def get_spike_phase(
                 for LFP with {phase.shape[1]} channels"""
             )
         selected_phase = phase[:, channel_idx]
+        if return_inst_freq:
+            selected_inst_freq = inst_freq[:, channel_idx]
 
     # Convert spike times to indices
     spike_indices = np.floor(spike_times * sampling_rate).astype(np.int64)
 
-    # Create output array with NaNs
+    # Create output arrays with NaNs
     spike_phases = np.full_like(spike_times, np.nan, dtype=float)
+    if return_inst_freq:
+        spike_inst_freq = np.full_like(spike_times, np.nan, dtype=float)
 
     # Find valid indices
     valid_mask = (spike_indices >= 0) & (spike_indices < len(selected_phase))
 
-    # Extract phases for valid spikes
+    # Extract phases and frequencies for valid spikes
     if np.any(valid_mask):
         valid_indices = spike_indices[valid_mask]
         spike_phases[valid_mask] = selected_phase[valid_indices]
+        if return_inst_freq:
+            spike_inst_freq[valid_mask] = selected_inst_freq[valid_indices]
 
-    return spike_phases
+    if return_inst_freq:
+        return spike_phases, spike_inst_freq
+    else:
+        return spike_phases
 
 
 ## Sample code to display sine wave - phase relationship
