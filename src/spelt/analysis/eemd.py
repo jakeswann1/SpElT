@@ -253,7 +253,7 @@ def plot_emd_analysis(
     inst_amp: np.ndarray | None = None,
     channel: int = 0,
     time_window: tuple[float, float] | None = None,
-    max_imfs_display: int = 5,
+    max_imfs_display: int | None = None,
     freq_range: tuple[float, float] = (0, 100),
     figsize: tuple[float, float] = (18, 20),
     welch_nperseg: int | None = None,
@@ -279,6 +279,8 @@ def plot_emd_analysis(
     """
     n_samples, n_channels = signal.shape
     n_imfs = imfs.shape[0]
+    if max_imfs_display is None:
+        max_imfs_display = n_imfs
 
     # Validate inputs
     if channel >= n_channels:
@@ -337,126 +339,126 @@ def plot_emd_analysis(
     ax2.legend()
     ax2.grid(True, alpha=0.3)
 
-    # Plot 3: Instantaneous Frequency
-    ax3 = axes[2]
-    if inst_freq is not None:
-        n_freq_imfs = min(3, n_imfs - 1)  # Exclude residue
-        for i in range(n_freq_imfs):
-            valid_freq = inst_freq[i, time_slice, channel]
-            # Remove invalid values
-            mask = np.isfinite(valid_freq) & (valid_freq > 0) & (valid_freq < fs / 2)
-            if np.any(mask):
-                # Smooth for visualization
-                smooth_freq = np.convolve(
-                    valid_freq,
-                    np.ones(min(20, len(valid_freq) // 10))
-                    / min(20, len(valid_freq) // 10),
-                    mode="same",
-                )
-                ax3.plot(t_display, smooth_freq, label=f"IMF {i+1}", alpha=0.8)
-        ax3.set_ylim(freq_range)
-    else:
-        ax3.text(
-            0.5,
-            0.5,
-            "Instantaneous frequency\nnot computed",
-            ha="center",
-            va="center",
-            transform=ax3.transAxes,
-        )
-    ax3.set_title(f"Instantaneous Frequency - Channel {channel+1}")
-    ax3.set_xlabel("Time (s)")
-    ax3.set_ylabel("Frequency (Hz)")
-    ax3.legend()
-    ax3.grid(True, alpha=0.3)
+    # # Plot 3: Instantaneous Frequency
+    # ax3 = axes[2]
+    # if inst_freq is not None:
+    #     n_freq_imfs = min(3, n_imfs - 1)  # Exclude residue
+    #     for i in range(n_freq_imfs):
+    #         valid_freq = inst_freq[i, time_slice, channel]
+    #         # Remove invalid values
+    #         mask = np.isfinite(valid_freq) & (valid_freq > 0) & (valid_freq < fs / 2)
+    #         if np.any(mask):
+    #             # Smooth for visualization
+    #             smooth_freq = np.convolve(
+    #                 valid_freq,
+    #                 np.ones(min(20, len(valid_freq) // 10))
+    #                 / min(20, len(valid_freq) // 10),
+    #                 mode="same",
+    #             )
+    #             ax3.plot(t_display, smooth_freq, label=f"IMF {i+1}", alpha=0.8)
+    #     ax3.set_ylim(freq_range)
+    # else:
+    #     ax3.text(
+    #         0.5,
+    #         0.5,
+    #         "Instantaneous frequency\nnot computed",
+    #         ha="center",
+    #         va="center",
+    #         transform=ax3.transAxes,
+    #     )
+    # ax3.set_title(f"Instantaneous Frequency - Channel {channel+1}")
+    # ax3.set_xlabel("Time (s)")
+    # ax3.set_ylabel("Frequency (Hz)")
+    # ax3.legend()
+    # ax3.grid(True, alpha=0.3)
 
-    # Plot 4: Instantaneous Amplitude
-    ax4 = axes[3]
-    if inst_amp is not None:
-        n_amp_imfs = min(3, n_imfs - 1)  # Exclude residue
-        for i in range(n_amp_imfs):
-            ax4.plot(
-                t_display,
-                inst_amp[i, time_slice, channel],
-                label=f"IMF {i+1}",
-                alpha=0.8,
-            )
-    else:
-        ax4.text(
-            0.5,
-            0.5,
-            "Instantaneous amplitude\nnot computed",
-            ha="center",
-            va="center",
-            transform=ax4.transAxes,
-        )
-    ax4.set_title(f"Instantaneous Amplitude - Channel {channel+1}")
-    ax4.set_xlabel("Time (s)")
-    ax4.set_ylabel("Amplitude")
-    ax4.legend()
-    ax4.grid(True, alpha=0.3)
+    # # Plot 4: Instantaneous Amplitude
+    # ax4 = axes[3]
+    # if inst_amp is not None:
+    #     n_amp_imfs = min(3, n_imfs - 1)  # Exclude residue
+    #     for i in range(n_amp_imfs):
+    #         ax4.plot(
+    #             t_display,
+    #             inst_amp[i, time_slice, channel],
+    #             label=f"IMF {i+1}",
+    #             alpha=0.8,
+    #         )
+    # else:
+    #     ax4.text(
+    #         0.5,
+    #         0.5,
+    #         "Instantaneous amplitude\nnot computed",
+    #         ha="center",
+    #         va="center",
+    #         transform=ax4.transAxes,
+    #     )
+    # ax4.set_title(f"Instantaneous Amplitude - Channel {channel+1}")
+    # ax4.set_xlabel("Time (s)")
+    # ax4.set_ylabel("Amplitude")
+    # ax4.legend()
+    # ax4.grid(True, alpha=0.3)
 
-    # Plot 5: Frequency spectrum comparison (using Welch method)
-    ax5 = axes[4]
-    freqs_welch_orig, psd_orig = calculate_welch_psd(
-        signal[:, channel], fs, welch_nperseg
-    )
-    reconstructed = np.sum(imfs[:, :, channel], axis=0)
-    freqs_welch_recon, psd_recon = calculate_welch_psd(reconstructed, fs, welch_nperseg)
+    # # Plot 5: Frequency spectrum comparison (using Welch method)
+    # ax5 = axes[4]
+    # freqs_welch_orig, psd_orig = calculate_welch_psd(
+    #     signal[:, channel], fs, welch_nperseg
+    # )
+    # reconstructed = np.sum(imfs[:, :, channel], axis=0)
+    # freqs_welch_recon, psd_recon = calculate_welch_psd(reconstructed, fs, welch_nperseg)
 
-    mask_orig = (freqs_welch_orig >= freq_range[0]) & (
-        freqs_welch_orig <= freq_range[1]
-    )
-    mask_recon = (freqs_welch_recon >= freq_range[0]) & (
-        freqs_welch_recon <= freq_range[1]
-    )
+    # mask_orig = (freqs_welch_orig >= freq_range[0]) & (
+    #     freqs_welch_orig <= freq_range[1]
+    # )
+    # mask_recon = (freqs_welch_recon >= freq_range[0]) & (
+    #     freqs_welch_recon <= freq_range[1]
+    # )
 
-    ax5.semilogy(
-        freqs_welch_orig[mask_orig],
-        psd_orig[mask_orig],
-        "b-",
-        label="Original",
-        alpha=0.7,
-        linewidth=2,
-    )
-    ax5.semilogy(
-        freqs_welch_recon[mask_recon],
-        psd_recon[mask_recon],
-        "r--",
-        label="Reconstructed",
-        alpha=0.7,
-        linewidth=2,
-    )
-    ax5.set_title(f"Frequency Spectrum (Welch) - Channel {channel+1}")
-    ax5.set_xlabel("Frequency (Hz)")
-    ax5.set_ylabel("Power Spectral Density")
-    ax5.legend()
-    ax5.grid(True, alpha=0.3)
-    ax5.set_xlim(freq_range)
+    # ax5.semilogy(
+    #     freqs_welch_orig[mask_orig],
+    #     psd_orig[mask_orig],
+    #     "b-",
+    #     label="Original",
+    #     alpha=0.7,
+    #     linewidth=2,
+    # )
+    # ax5.semilogy(
+    #     freqs_welch_recon[mask_recon],
+    #     psd_recon[mask_recon],
+    #     "r--",
+    #     label="Reconstructed",
+    #     alpha=0.7,
+    #     linewidth=2,
+    # )
+    # ax5.set_title(f"Frequency Spectrum (Welch) - Channel {channel+1}")
+    # ax5.set_xlabel("Frequency (Hz)")
+    # ax5.set_ylabel("Power Spectral Density")
+    # ax5.legend()
+    # ax5.grid(True, alpha=0.3)
+    # ax5.set_xlim(freq_range)
 
-    # Plot 6: Reconstruction error and statistics
-    ax6 = axes[5]
-    reconstruction_error = signal[:, channel] - reconstructed
-    ax6.plot(t_display, reconstruction_error[time_slice], "r-", alpha=0.8)
-    ax6.set_title(f"Reconstruction Error - Channel {channel+1}")
-    ax6.set_xlabel("Time (s)")
-    ax6.set_ylabel("Error")
-    ax6.grid(True, alpha=0.3)
+    # # Plot 6: Reconstruction error and statistics
+    # ax6 = axes[5]
+    # reconstruction_error = signal[:, channel] - reconstructed
+    # ax6.plot(t_display, reconstruction_error[time_slice], "r-", alpha=0.8)
+    # ax6.set_title(f"Reconstruction Error - Channel {channel+1}")
+    # ax6.set_xlabel("Time (s)")
+    # ax6.set_ylabel("Error")
+    # ax6.grid(True, alpha=0.3)
 
-    # Add statistics
-    mse = np.mean(reconstruction_error**2)
-    max_error = np.max(np.abs(reconstruction_error))
-    snr = 10 * np.log10(np.var(signal[:, channel]) / mse) if mse > 0 else np.inf
+    # # Add statistics
+    # mse = np.mean(reconstruction_error**2)
+    # max_error = np.max(np.abs(reconstruction_error))
+    # snr = 10 * np.log10(np.var(signal[:, channel]) / mse) if mse > 0 else np.inf
 
-    stats_text = f"MSE: {mse:.2e}\nMax Error: {max_error:.3f}\nSNR: {snr:.1f} dB"
-    ax6.text(
-        0.02,
-        0.98,
-        stats_text,
-        transform=ax6.transAxes,
-        verticalalignment="top",
-        bbox={"boxstyle": "round", "facecolor": "wheat"},
-    )
+    # stats_text = f"MSE: {mse:.2e}\nMax Error: {max_error:.3f}\nSNR: {snr:.1f} dB"
+    # ax6.text(
+    #     0.02,
+    #     0.98,
+    #     stats_text,
+    #     transform=ax6.transAxes,
+    #     verticalalignment="top",
+    #     bbox={"boxstyle": "round", "facecolor": "wheat"},
+    # )
 
     # Plot 7: Z-scored Power Spectra using Welch method
     ax7 = axes[6]
@@ -682,15 +684,15 @@ def plot_emd_analysis(
     print(f"\nEMD Analysis Summary (Channel {channel+1}):")
     print(f"Number of IMFs: {n_imfs}")
     print(f"Signal length: {n_samples} samples ({n_samples/fs:.2f}s)")
-    print(f"Reconstruction MSE: {mse:.2e}")
-    print(f"Signal-to-Noise Ratio: {snr:.1f} dB")
-    print(f"Max absolute error: {max_error:.3f}")
+    # print(f"Reconstruction MSE: {mse:.2e}")
+    # print(f"Signal-to-Noise Ratio: {snr:.1f} dB")
+    # print(f"Max absolute error: {max_error:.3f}")
 
-    # Print power distribution
-    print("\nPower Distribution:")
-    for _, (label, power) in enumerate(zip(imf_labels, imf_powers)):
-        percentage = 100 * power / total_power
-        print(f"  {label}: {percentage:.1f}% of total power")
+    # # Print power distribution
+    # print("\nPower Distribution:")
+    # for _, (label, power) in enumerate(zip(imf_labels, imf_powers)):
+    #     percentage = 100 * power / total_power
+    #     print(f"  {label}: {percentage:.1f}% of total power")
 
     # Print dominant frequencies from Welch analysis
     print("\nDominant Frequencies (Welch method):")
