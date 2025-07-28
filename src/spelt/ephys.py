@@ -1,3 +1,4 @@
+import pickle as pkl
 from pathlib import Path
 
 import numpy as np
@@ -195,7 +196,7 @@ class ephys:  # noqa: N801
         """
 
         if self.analyzer is None:
-            self._load_ephys()
+            self._load_ephys(from_disk=True)
 
         if unit_ids is not None:
             sorting = self.analyzer.sorting.select_units(unit_ids)
@@ -210,7 +211,9 @@ class ephys:  # noqa: N801
             unit_ids = units_to_keep
 
         spike_vector = sorting.to_spike_vector()
-        sampling_rate = self.analyzer.recording.get_sampling_frequency()
+        sampling_rate = (
+            self.analyzer.get_total_samples() / self.analyzer.get_total_duration()
+        )
 
         self.analyzer.sorting = sorting
 
@@ -355,9 +358,9 @@ class ephys:  # noqa: N801
         trial_list: int | list[int] = None,
         sampling_rate: int = 1000,
         channels: list | None = None,
-        scale_to_uv=True,
         reload_flag=False,
         bandpass_filter: list[float, float] | None = None,
+        from_preprocessed=True,
     ):
         """
         Loads the LFP (Local Field Potential) data for specified trials.
@@ -368,10 +371,10 @@ class ephys:  # noqa: N801
             trial_list: The index of the trial(s) to load. Default is all
             sampling_rate: The desired sampling rate for the LFP data
             channels: A list of channel IDs to load. Default is all
-            scale_to_uv (bool, optional): choose whether to scale raw LFP trace to uV
             reload_flag (bool, optional): if true, forces reloading of data.
                 If false, only loads data for trials with no LFP data loaded
             bandpass_filter: apply bandpass filter with min and max frequency.
+            from_preprocessed (bool): If True, loads preprocessed LFP data from disk.
 
         Populates:
             self.lfp_data (list): A list that stores LFP data for each trial.
@@ -379,6 +382,184 @@ class ephys:  # noqa: N801
         """
         trial_list = self.normalize_trial_list(trial_list, "lfp")
 
+        for trial_iterator in trial_list:
+            if not self.should_load_data(trial_iterator, "lfp", reload_flag):
+                continue
+
+            lfp_path = self.recording_path / f"lfp_data_trial{trial_iterator}.pkl"
+
+            # Try to load from preprocessed data first (if enabled and file exists)
+            if from_preprocessed and lfp_path.exists():
+                try:
+                    with lfp_path.open("rb") as f:
+                        lfp_data = pkl.load(f)  # noqa: S301
+
+                    # Validate parameters against saved data
+                    self._validate_lfp_parameters(
+                        lfp_data,
+                        trial_iterator,
+                        sampling_rate,
+                        channels,
+                        bandpass_filter,
+                    )
+
+                    self.lfp_data[trial_iterator] = lfp_data
+                    print(f"Loaded preprocessed LFP data for trial {trial_iterator}")
+                    continue
+                except Exception as e:
+                    print(
+                        f"Error loading preprocessed LFP for trial {trial_iterator}: {e}"
+                    )
+                    print("Falling back to raw data loading...")
+
+            # Load from raw data (either because from_preprocessed=False, file doesn't exist, or loading failed)
+            self._load_and_save_lfp_data(
+                trial_iterator,
+                sampling_rate,
+                channels,
+                bandpass_filter,
+                save_to_disk=from_preprocessed,
+            )
+
+    def load_ttl(
+        self,
+        trial_list: int | list[int] | None = None,
+        output_flag=True,
+        reload_flag=False,
+        from_preprocessed=True,
+    ):
+        """
+        Load TTL data for specified trials from OpenEphys recording
+
+        Args:
+            trial_list: The index of the trial(s) for which TTL data is to be loaded.
+            output_flag: if True, print a statement when loading the TTL data
+            reload_flag: if True, forces reloading of data. If false, only loads data
+                for trials with no TTL data loaded
+            from_preprocessed (bool): If True, loads preprocessed TTL data from disk.
+
+        Populates:
+            self.sync_data (list): A list that stores TTL data for each trial.
+                The TTL data for the specified trial is added at the given index.
+        """
+        if self.recording_type != "NP2_openephys":
+            print("TTL data only available for NP2_openephys recordings")
+            return
+
+        trial_list = self.normalize_trial_list(trial_list, "ttl")
+
+        for trial_iterator in trial_list:
+            if not self.should_load_data(trial_iterator, "ttl", reload_flag):
+                continue
+
+            ttl_path = self.recording_path / f"ttl_data_trial{trial_iterator}.pkl"
+
+            # Try to load from preprocessed data first (if enabled and file exists)
+            if from_preprocessed and ttl_path.exists():
+                try:
+                    with ttl_path.open("rb") as f:
+                        ttl_data = pkl.load(f)  # noqa: S301
+                    self.sync_data[trial_iterator] = ttl_data
+                    if output_flag:
+                        print(
+                            f"Loaded preprocessed TTL data for trial {trial_iterator}"
+                        )
+                    continue
+                except Exception as e:
+                    if output_flag:
+                        print(
+                            f"Error loading preprocessed TTL for trial {trial_iterator}: {e}"
+                        )
+                        print("Falling back to raw data loading...")
+
+            # Load from raw data (either because from_preprocessed=False, file doesn't exist, or loading failed)
+            self._load_and_save_ttl_data(
+                trial_iterator, output_flag, save_to_disk=from_preprocessed
+            )
+
+    def _validate_lfp_parameters(
+        self,
+        saved_data: dict,
+        trial_iterator: int,
+        requested_sampling_rate: int,
+        requested_channels: list | None,
+        requested_filter: list[float, float] | None,
+    ):
+        """
+        Validate that the requested parameters match the saved LFP data.
+
+        Args:
+            saved_data: The loaded LFP data dictionary.
+            trial_iterator: The trial index being loaded.
+            requested_sampling_rate: The requested sampling rate.
+            requested_channels: The requested channels list.
+            requested_filter: The requested bandpass filter range.
+
+        Raises:
+            ValueError: If parameters don't match the saved data.
+        """
+        # Check sampling rate (only validate if both are not None)
+        saved_sampling_rate = saved_data.get("sampling_rate")
+        if (
+            requested_sampling_rate is not None
+            and saved_sampling_rate is not None
+            and saved_sampling_rate != requested_sampling_rate
+        ):
+            raise ValueError(
+                f"Trial {trial_iterator}: Requested sampling rate ({requested_sampling_rate} Hz) "
+                f"doesn't match saved data ({saved_sampling_rate} Hz). "
+                f"Use from_preprocessed=False to reload with new parameters."
+            )
+
+        # Check filter range (only validate if both are not None)
+        saved_filter = saved_data.get("filter_range")
+        if (
+            requested_filter is not None
+            and saved_filter is not None
+            and saved_filter != requested_filter
+        ):
+            raise ValueError(
+                f"Trial {trial_iterator}: Requested filter range ({requested_filter}) "
+                f"doesn't match saved data ({saved_filter}). "
+                f"Use from_preprocessed=False to reload with new parameters."
+            )
+
+        # Check channels if specified
+        if requested_channels is not None:
+            saved_channels = saved_data.get("channels")
+
+            # Convert requested channels to strings to match saved format
+            requested_channels_str = [str(ch) for ch in requested_channels]
+
+            # Check if saved_channels is None (all channels were saved)
+            if saved_channels is not None:
+                # Check if all requested channels are available in saved data
+                missing_channels = set(requested_channels_str) - set(saved_channels)
+                if missing_channels:
+                    raise ValueError(
+                        f"Trial {trial_iterator}: Requested channels {list(missing_channels)} "
+                        f"not found in saved data (available: {saved_channels}). "
+                        f"Use from_preprocessed=False to reload with new channels."
+                    )
+
+    def _load_and_save_lfp_data(
+        self,
+        trial_iterator: int,
+        sampling_rate: int,
+        channels: list | None,
+        bandpass_filter: list[float, float] | None,
+        save_to_disk: bool = True,
+    ):
+        """
+        Helper method to load LFP data from raw files and optionally save to disk.
+
+        Args:
+            trial_iterator: The trial index to load.
+            sampling_rate: The desired sampling rate for the LFP data.
+            channels: A list of channel IDs to load.
+            bandpass_filter: Apply bandpass filter with min and max frequency.
+            save_to_disk: If True, save the loaded data to disk for future use.
+        """
         if self.analyzer is None:
             self._load_ephys(sparse=False)
 
@@ -405,90 +586,106 @@ class ephys:  # noqa: N801
         if channels is not None:
             channels = list(map(str, channels))
 
-        for trial_iterator in trial_list:
-            if not self.should_load_data(trial_iterator, "lfp", reload_flag):
-                continue
+        path = self.recording_path / self.trial_list[trial_iterator]
+        self.log_loading_info(path, "lfp", True)
 
-            path = self.recording_path / self.trial_list[trial_iterator]
-            self.log_loading_info(path, "lfp", True)
+        try:
+            lfp_data = recording.get_traces(
+                segment_index=trial_iterator,
+                channel_ids=channels,
+                return_scaled=True,
+            ).astype(float)
 
-            try:
-                lfp_data = recording.get_traces(
-                    segment_index=trial_iterator,
-                    channel_ids=channels,
-                    return_scaled=scale_to_uv,
-                ).astype(float)
+            lfp_timestamps = recording.get_times(segment_index=trial_iterator)
 
-                lfp_timestamps = recording.get_times(segment_index=trial_iterator)
+            trial_lfp_data = {
+                "data": lfp_data,
+                "timestamps": lfp_timestamps,
+                "sampling_rate": sampling_rate,
+                "channels": channels,
+                "filter_range": bandpass_filter,
+            }
 
-                self.lfp_data[trial_iterator] = {
-                    "data": lfp_data,
-                    "timestamps": lfp_timestamps,
-                    "sampling_rate": sampling_rate,
-                    "channels": channels,
-                }
-            except Exception as e:
-                print(f"Error loading LFP data for trial {trial_iterator}: {str(e)}")
-                self.lfp_data[trial_iterator] = None
+            self.lfp_data[trial_iterator] = trial_lfp_data
 
-    def load_ttl(
-        self, trial_iterators: int | list[int] | None = None, output_flag=True
+            # Save to disk for future loading (only if requested)
+            if save_to_disk:
+                lfp_path = self.recording_path / f"lfp_data_trial{trial_iterator}.pkl"
+                try:
+                    with lfp_path.open("wb") as f:
+                        pkl.dump(trial_lfp_data, f)
+
+                    # Print saved file size
+                    file_size = lfp_path.stat().st_size
+                    print(
+                        f"Saved trial {trial_iterator} LFP data to {lfp_path} ({file_size / 1e6:.2f} MB)"
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not save LFP data to disk: {e}")
+
+        except Exception as e:
+            print(f"Error loading LFP data for trial {trial_iterator}: {str(e)}")
+            self.lfp_data[trial_iterator] = None
+
+    def _load_and_save_ttl_data(
+        self, trial_iterator: int, output_flag: bool, save_to_disk: bool = True
     ):
         """
-        Load TTL data for specified trials from OpenEphys recording
+        Helper method to load TTL data from raw files and optionally save to disk.
 
         Args:
-            trial_list: The index of the trial(s) for which TTL data is to be loaded.
-            output_flag: if True, print a statement when loading the TTL data
-
-        Populates:
-            self.ttl_data (list): A list that stores TTL data for each trial.
-                The TTL data for the specified trial is added at the given index.
+            trial_iterator: The trial index to load.
+            output_flag: If True, print loading information.
+            save_to_disk: If True, save the loaded data to disk for future use.
         """
-        if self.recording_type != "NP2_openephys":
-            print("TTL data only available for NP2_openephys recordings")
-            return
+        path = self.recording_path / self.trial_list[trial_iterator]
+        self.log_loading_info(path, "ttl", output_flag)
 
-        trial_list = self.normalize_trial_list(trial_iterators, "ttl")
-
-        for trial_iterator in trial_list:
-            if not self.should_load_data(trial_iterator, "ttl", True):
-                continue
-
-            path = self.recording_path / self.trial_list[trial_iterator]
-            self.log_loading_info(path, "ttl", output_flag)
-
-            try:
-                ttl_times = {
-                    "ttl_timestamps": se.read_openephys_event(path).get_event_times(
-                        channel_id="Neuropixels PXI Sync"
-                    )
-                }
-
-                # Get time when recording started and rescale timestamps
-                if not self.analyzer:
-                    self._load_ephys(sparse=False)
-
-                recording_start_time = self.analyzer.recording.get_start_time(
-                    segment_index=trial_iterator
+        try:
+            ttl_times = {
+                "ttl_timestamps": se.read_openephys_event(path).get_event_times(
+                    channel_id="Neuropixels PXI Sync"
                 )
+            }
 
-                if ttl_times["ttl_timestamps"][0] - recording_start_time < 0:
-                    Warning(
-                        f"Recording start time {recording_start_time} is later than "
-                        f"the first TTL pulse {ttl_times['ttl_timestamps'][0]}"
-                        f"setting first TTL pulse to 0"
-                    )
-                    ttl_times["ttl_timestamps"] = (
-                        ttl_times["ttl_timestamps"] - ttl_times["ttl_timestamps"][0]
-                    )
-                else:
-                    ttl_times["ttl_timestamps"] -= recording_start_time
+            # Get time when recording started and rescale timestamps
+            if not self.analyzer:
+                self._load_ephys(sparse=False)
 
-                self.sync_data[trial_iterator] = ttl_times
-            except Exception as e:
-                print(f"Error loading TTL data for trial {trial_iterator}: {str(e)}")
-                self.sync_data[trial_iterator] = {"ttl_timestamps": None}
+            recording_start_time = self.analyzer.recording.get_start_time(
+                segment_index=trial_iterator
+            )
+
+            if ttl_times["ttl_timestamps"][0] - recording_start_time < 0:
+                Warning(
+                    f"Recording start time {recording_start_time} is later than "
+                    f"the first TTL pulse {ttl_times['ttl_timestamps'][0]} "
+                    f"setting first TTL pulse to 0"
+                )
+                ttl_times["ttl_timestamps"] = (
+                    ttl_times["ttl_timestamps"] - ttl_times["ttl_timestamps"][0]
+                )
+            else:
+                ttl_times["ttl_timestamps"] -= recording_start_time
+
+            self.sync_data[trial_iterator] = ttl_times
+
+            # Save to disk for future loading (only if requested)
+            if save_to_disk:
+                ttl_path = self.recording_path / f"ttl_data_trial{trial_iterator}.pkl"
+                try:
+                    with ttl_path.open("wb") as f:
+                        pkl.dump(ttl_times, f)
+                    if output_flag:
+                        print(
+                            f"Saved TTL data for trial {trial_iterator} to {ttl_path}"
+                        )
+                except Exception as e:
+                    print(f"Warning: Could not save TTL data to disk: {e}")
+
+        except Exception as e:
+            print(f"Error loading TTL data for trial {trial_iterator}: {str(e)}")
+            self.sync_data[trial_iterator] = {"ttl_timestamps": None}
 
     def _load_pos_data_by_type(
         self, tracking_type: str, path: Path, trial_iterator: int, output_flag: bool
@@ -694,11 +891,25 @@ class ephys:  # noqa: N801
             "scaled_ppm": 400,
         }
 
-    def _load_ephys(self, keep_good_only=False, sparse=True):
+    def _load_ephys(self, keep_good_only=False, sparse=True, from_disk=True):
         """
         Make a SortingAnalyzer for extracting spikes and LFP
         """
         import probeinterface as pi
+
+        # Load sorting analyzer from disk if it exists. Raw recording will not be loaded
+        if from_disk:
+            if (self.recording_path / "sorting_analyzer.zarr").exists():
+                self.analyzer = si.load_sorting_analyzer(
+                    self.recording_path / "sorting_analyzer.zarr"
+                )
+            else:
+                raise FileNotFoundError(
+                    "Sorting analyzer not found on disk. "
+                    "Please run preprocessing script to create it."
+                )
+
+            return
 
         recording_list = []
         # Create list of recording objects
@@ -716,6 +927,8 @@ class ephys:  # noqa: N801
 
             elif self.recording_type == "NP2_openephys":
                 path = self.recording_path / self.trial_list[trial_iterator] / self.area
+                if not path.exists():
+                    path = self.recording_path / self.trial_list[trial_iterator]
                 recording = se.read_openephys(path, stream_id="0", all_annotations=True)
             recording_list.append(recording)
 
@@ -735,11 +948,19 @@ class ephys:  # noqa: N801
         self.raw_recording = multi_segment_recording
 
         # Highpass filter recording
-        multi_segment_recording = spre.highpass_filter(multi_segment_recording, 300)
+        multi_segment_recording: si.BaseRecording = spre.highpass_filter(
+            multi_segment_recording, 300
+        )
 
         # Make a single multisegment SortingAnalyzer for the whole session
         self.analyzer = si.create_sorting_analyzer(
-            multi_segment_sorting, multi_segment_recording, sparse=sparse
+            multi_segment_sorting,
+            multi_segment_recording,
+            sparse=sparse,
+            format="zarr",
+            folder=self.recording_path / "sorting_analyzer",
+            return_scaled=True,
+            overwrite=False,
         )
 
     def _load_templates(self, clusters_to_load=None):

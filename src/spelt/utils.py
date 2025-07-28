@@ -39,7 +39,7 @@ def find_all_sessions(
 
     sheet_inc = sheet[sheet["Include"] == "Y"]
     if raw_only:
-        sheet_inc = sheet_inc[sheet_inc["Format"] == "raw"]
+        sheet_inc = sheet_inc[sheet_inc["Format"] != "thresholded"]
     if animal:
         sheet_inc = sheet_inc[sheet_inc["Animal"] == animal]
     if probe:
