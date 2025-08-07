@@ -16,9 +16,16 @@ def load_and_process_recording(
 ):
 
     if probe_to_sort == "NP2_openephys":
-        return se.read_openephys(
-            folder_path=f"{base_folder}/{trial}/{area}", stream_id="0"
-        )
+        try:
+            recording = se.read_openephys(
+                folder_path=f"{base_folder}/{trial}/{area}", stream_id="0"
+            )
+        except FileNotFoundError:
+            recording = se.read_openephys(
+                folder_path=f"{base_folder}/{trial}", stream_id="0"
+            )
+            print(f"Area not specified in file path, assuming area {area}")
+        return recording
 
     elif probe_to_sort == "5x12_buz":
         recording = se.read_axona(f"{base_folder}/{trial}.set")

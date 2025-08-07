@@ -123,3 +123,5 @@ def sync_bonsai_jake(xy_pos, ttl_times, pos_sampling_rate, speed, direction_disp
         xy_pos.columns = ttl_times
         speed = speed[: len(ttl_times)]
         direction_disp = direction_disp[: len(ttl_times)]
+
+    return xy_pos, speed, direction_disp

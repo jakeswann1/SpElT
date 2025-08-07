@@ -8,7 +8,7 @@ import spikeinterface.preprocessing as spre
 
 from .utils import gs_to_df
 
-si.set_global_job_kwargs(n_jobs=-1)
+si.set_global_job_kwargs(n_jobs=-2)
 
 
 class ephys:  # noqa: N801
@@ -110,7 +110,7 @@ class ephys:  # noqa: N801
                 ]  # Drops thresholded Axona recordings unless pos_only=True
             self.session = session
         except Exception as e:
-            print("Google Sheet not found, please specify a valid URL")
+            print("Google Sheet not found, please specify a valid URL", e)
             raise e
 
         # Load some metadata from the Google Sheet
@@ -174,6 +174,7 @@ class ephys:  # noqa: N801
         load_templates=False,
         load_waveforms=False,
         load_channels=False,
+        from_disk=True,
     ):
         """
         Loads the spike data for the session.
@@ -196,7 +197,7 @@ class ephys:  # noqa: N801
         """
 
         if self.analyzer is None:
-            self._load_ephys(from_disk=True)
+            self._load_ephys(from_disk=from_disk)
 
         if unit_ids is not None:
             sorting = self.analyzer.sorting.select_units(unit_ids)
@@ -408,11 +409,12 @@ class ephys:  # noqa: N801
                     continue
                 except Exception as e:
                     print(
-                        f"Error loading preprocessed LFP for trial {trial_iterator}: {e}"
+                        f"Error loading preprocessed LFP for trial{trial_iterator}: {e}"
                     )
                     print("Falling back to raw data loading...")
 
-            # Load from raw data (either because from_preprocessed=False, file doesn't exist, or loading failed)
+            # Load from raw data (either because from_preprocessed=False,
+            # file doesn't exist, or loading failed)
             self._load_and_save_lfp_data(
                 trial_iterator,
                 sampling_rate,
@@ -467,12 +469,11 @@ class ephys:  # noqa: N801
                     continue
                 except Exception as e:
                     if output_flag:
-                        print(
-                            f"Error loading preprocessed TTL for trial {trial_iterator}: {e}"
-                        )
+                        print(f"Error loading TTL for trial {trial_iterator}: {e}")
                         print("Falling back to raw data loading...")
 
-            # Load from raw data (either because from_preprocessed=False, file doesn't exist, or loading failed)
+            # Load from raw data (either because from_preprocessed=False,
+            #  file doesn't exist, or loading failed)
             self._load_and_save_ttl_data(
                 trial_iterator, output_flag, save_to_disk=from_preprocessed
             )
@@ -506,9 +507,12 @@ class ephys:  # noqa: N801
             and saved_sampling_rate != requested_sampling_rate
         ):
             raise ValueError(
-                f"Trial {trial_iterator}: Requested sampling rate ({requested_sampling_rate} Hz) "
-                f"doesn't match saved data ({saved_sampling_rate} Hz). "
-                f"Use from_preprocessed=False to reload with new parameters."
+                f"""
+                Trial {trial_iterator}: Requested sampling rate
+                ({requested_sampling_rate} Hz) doesn't match saved data
+                ({saved_sampling_rate} Hz).
+                Use from_preprocessed=False to reload with new parameters.
+                """
             )
 
         # Check filter range (only validate if both are not None)
@@ -535,12 +539,17 @@ class ephys:  # noqa: N801
             if saved_channels is not None:
                 # Check if all requested channels are available in saved data
                 missing_channels = set(requested_channels_str) - set(saved_channels)
-                if missing_channels:
-                    raise ValueError(
-                        f"Trial {trial_iterator}: Requested channels {list(missing_channels)} "
-                        f"not found in saved data (available: {saved_channels}). "
-                        f"Use from_preprocessed=False to reload with new channels."
+                raise (
+                    ValueError(
+                        f"""
+                    Trial {trial_iterator}: Requested channels {list(missing_channels)}
+                    not found in saved data (available: {saved_channels}).
+                    Use from_preprocessed=False to reload with new channels.
+                    """
                     )
+                    if missing_channels
+                    else None
+                )
 
     def _load_and_save_lfp_data(
         self,
@@ -565,10 +574,6 @@ class ephys:  # noqa: N801
 
         recording = self.raw_recording
 
-        # Resample
-        recording = spre.resample(recording, sampling_rate)
-        print("Resampled to", sampling_rate, "Hz")
-
         # Bandpass filter
         if bandpass_filter is not None:
             recording = spre.bandpass_filter(
@@ -577,9 +582,13 @@ class ephys:  # noqa: N801
                 freq_max=bandpass_filter[1],
             )
 
-        # AXONA ONLY: clip values of +- 32000
+        # AXONA ONLY: clip values of >+- 32000
         if self.recording_type == "nexus":
             recording = spre.clip(recording, a_min=-32000, a_max=32000)
+
+        # Resample
+        recording: si.BaseRecording = spre.resample(recording, sampling_rate)
+        print("Resampled to", sampling_rate, "Hz")
 
         # Set channels to load to list of str to match recording object
         #  - not ideal but other fixes are harder
@@ -589,7 +598,13 @@ class ephys:  # noqa: N801
         path = self.recording_path / self.trial_list[trial_iterator]
         self.log_loading_info(path, "lfp", True)
 
+        temp_folder = self.recording_path / "temp"
+
         try:
+            # create temporary recording object on disk
+            recording.save(format="zarr", folder=temp_folder)
+            recording = recording.load(f"{temp_folder}.zarr")
+
             lfp_data = recording.get_traces(
                 segment_index=trial_iterator,
                 channel_ids=channels,
@@ -618,7 +633,8 @@ class ephys:  # noqa: N801
                     # Print saved file size
                     file_size = lfp_path.stat().st_size
                     print(
-                        f"Saved trial {trial_iterator} LFP data to {lfp_path} ({file_size / 1e6:.2f} MB)"
+                        f"""Saved trial {trial_iterator} LFP data to
+                        {lfp_path} ({file_size / 1e6:.2f} MB)"""
                     )
                 except Exception as e:
                     print(f"Warning: Could not save LFP data to disk: {e}")
@@ -626,6 +642,17 @@ class ephys:  # noqa: N801
         except Exception as e:
             print(f"Error loading LFP data for trial {trial_iterator}: {str(e)}")
             self.lfp_data[trial_iterator] = None
+
+        finally:
+            # Clean up temporary files
+            try:
+                import shutil
+
+                if Path(f"{temp_folder}.zarr").exists():
+                    shutil.rmtree(f"{temp_folder}.zarr")
+                    print(f"Cleaned up temporary recording: {temp_folder}.zarr")
+            except Exception as e:
+                print(f"Warning: Could not clean up temporary files: {e}")
 
     def _load_and_save_ttl_data(
         self, trial_iterator: int, output_flag: bool, save_to_disk: bool = True
@@ -898,18 +925,20 @@ class ephys:  # noqa: N801
         import probeinterface as pi
 
         # Load sorting analyzer from disk if it exists. Raw recording will not be loaded
+        # Makes a copy of the disk analyzer to avoid modifying the original
         if from_disk:
             if (self.recording_path / "sorting_analyzer.zarr").exists():
-                self.analyzer = si.load_sorting_analyzer(
+                disk_analyzer = si.load_sorting_analyzer(
                     self.recording_path / "sorting_analyzer.zarr"
                 )
+                self.analyzer = disk_analyzer.copy()
+                # self.raw_recording = self.analyzer.recording
+                return
             else:
                 raise FileNotFoundError(
                     "Sorting analyzer not found on disk. "
                     "Please run preprocessing script to create it."
                 )
-
-            return
 
         recording_list = []
         # Create list of recording objects
@@ -960,7 +989,7 @@ class ephys:  # noqa: N801
             format="zarr",
             folder=self.recording_path / "sorting_analyzer",
             return_scaled=True,
-            overwrite=False,
+            overwrite=True,
         )
 
     def _load_templates(self, clusters_to_load=None):

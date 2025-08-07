@@ -8,7 +8,6 @@ from scipy.sparse import coo_matrix
 def load_session(obj, lfp_sampling_rate):
     """
     Loads all data for all trials of a session into an existing ephys class object
-
     Params:
      - obj: instance of an ephys class object
     """
@@ -29,34 +28,59 @@ def gs_to_df(url: str):
 
 
 def find_all_sessions(
-    sheet_path, data_path, raw_only=False, probe=None, animal=None, area=None
-):
+    sheet_path: str,
+    data_path: str,
+    raw_only: bool = False,
+    probe: str | list[str] | None = None,
+    animal: str | list[str] | None = None,
+    area: str | list[str] | None = None,
+) -> dict[str, str]:
     """
     Function to find all sessions and session paths from Recording Master Spreadsheet
+
+    Params:
+     - sheet_path: Path to the Google Sheets spreadsheet
+     - data_path: Base path to data directory
+     - raw_only: If True, exclude thresholded format sessions
+     - probe: Single probe type or list of probe types to filter by
+     - animal: Single animal or list of animals to filter by
+     - area: Single area or list of areas to filter by
+
+    Returns:
+     - Dictionary mapping session names to their full paths
     """
-
     sheet = gs_to_df(sheet_path)
-
     sheet_inc = sheet[sheet["Include"] == "Y"]
+
     if raw_only:
         sheet_inc = sheet_inc[sheet_inc["Format"] != "thresholded"]
-    if animal:
-        sheet_inc = sheet_inc[sheet_inc["Animal"] == animal]
-    if probe:
-        sheet_inc = sheet_inc[sheet_inc["probe_type"] == probe]
-    if area:
-        sheet_inc = sheet_inc[sheet_inc["Areas"] == area]
+
+    if animal is not None:
+        if isinstance(animal, str):
+            sheet_inc = sheet_inc[sheet_inc["Animal"] == animal]
+        else:
+            sheet_inc = sheet_inc[sheet_inc["Animal"].isin(animal)]
+
+    if probe is not None:
+        if isinstance(probe, str):
+            sheet_inc = sheet_inc[sheet_inc["probe_type"] == probe]
+        else:
+            sheet_inc = sheet_inc[sheet_inc["probe_type"].isin(probe)]
+
+    if area is not None:
+        if isinstance(area, str):
+            sheet_inc = sheet_inc[sheet_inc["Areas"] == area]
+        else:
+            sheet_inc = sheet_inc[sheet_inc["Areas"].isin(area)]
+
     session_list = np.unique(sheet_inc["Session"].to_list())
     session_dict = {}
 
     for i in session_list:
         session_df = sheet_inc[sheet_inc["Session"] == i]
-
         animal = session_df["Animal"].values[0]
         date_long = session_df["Date"].values[0]
-
         path_to_session = f"{data_path}/{animal}/{date_long}"
-
         session_dict[i] = path_to_session
 
     return session_dict
