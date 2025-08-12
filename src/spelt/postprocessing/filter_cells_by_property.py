@@ -65,10 +65,6 @@ def filter_cells_by_property(
 
     # Apply spike width filter if specified and if any units remain
     if spike_width_range_us is not None and len(units_to_keep) > 0:
-        # Compute spike templates
-        analyzer.compute(
-            {"random_spikes": {}, "templates": {"ms_before": 1.5, "ms_after": 2.5}}
-        )
 
         # Calculate spike widths
         widths_df: pd.DataFrame = spost.compute_template_metrics(
@@ -80,10 +76,14 @@ def filter_cells_by_property(
         # Filter by spike width range - convert microseconds to seconds for comparison
         min_width_s = spike_width_range_us[0] / 1e6
         max_width_s = spike_width_range_us[1] / 1e6
-        units_to_keep = widths_df[
-            (widths_df["peak_to_valley"] >= min_width_s)
-            & (widths_df["peak_to_valley"] <= max_width_s)
-        ].index
+        units_to_keep = (
+            widths_df[
+                (widths_df["peak_to_valley"] >= min_width_s)
+                & (widths_df["peak_to_valley"] <= max_width_s)
+            ]
+            .index.astype(int)
+            .tolist()
+        )
         analyzer.select_units(units_to_keep)
 
     # Apply burst filter if specified and if any units remain

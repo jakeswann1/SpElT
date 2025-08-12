@@ -25,15 +25,15 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
             recording = spre.phase_shift(recording)
         except AssertionError as e:
             print(
-                f"""Phase shift failed for {recording_name} - 
-                this is likely because the recording is already phase shifted. 
+                f"""Phase shift failed for {recording_name} -
+                this is likely because the recording is already phase shifted.
                 Error: {e}"""
             )
         # Sort
         sorting = ss.run_sorter(
             "kilosort4",
             recording,
-            output_folder=f"{sorting_path}",
+            folder=f"{sorting_path}",
             verbose=True,
             docker_image=False,
             remove_existing_folder=True,
