@@ -12,7 +12,6 @@ from ..axona_utils.postprocess_pos_data import (
 
 # Function to process position data
 def postprocess_dlc_data(posdata, max_speed, smoothing_window_size):
-
     if "bodypart_pos" in posdata:
         tracked_points = posdata["bodypart_pos"]
         # To correct for tracked point orientation,
@@ -66,7 +65,6 @@ def postprocess_dlc_data(posdata, max_speed, smoothing_window_size):
 
 
 def postprocess_bonsai_jake(posdata, max_speed, smoothing_window_size):
-
     raw_pos = posdata["pos"]
     ppm = posdata["scaled_ppm"]
     sampling_rate = posdata["sampling_rate"]
@@ -101,7 +99,7 @@ def sync_bonsai_jake(xy_pos, ttl_times, pos_sampling_rate, speed, direction_disp
             Removing {len(ttl_times) - len(xy_pos.columns)}
             TTL pulses from the end of TTL times.
             Data may be up to
-            {(len(ttl_times) - len(xy_pos.columns))/pos_sampling_rate}
+            {(len(ttl_times) - len(xy_pos.columns)) / pos_sampling_rate}
                 seconds out of sync.
             """
         )
@@ -115,7 +113,7 @@ def sync_bonsai_jake(xy_pos, ttl_times, pos_sampling_rate, speed, direction_disp
             Removing {len(xy_pos.columns) - len(ttl_times)}
             position samples from the end of position data.
             Data may be up to
-            {(len(xy_pos.columns) - len(ttl_times))/pos_sampling_rate}
+            {(len(xy_pos.columns) - len(ttl_times)) / pos_sampling_rate}
                 seconds out of sync.
             """
         )

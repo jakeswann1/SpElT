@@ -1,9 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from spelt.maps.adaptive_smooth import (
-    adaptive_smooth,
-)
+from spelt.maps.adaptive_smooth import adaptive_smooth
 
 
 def make_rate_maps(
@@ -469,7 +467,6 @@ def make_rate_maps_from_obj(obj, bin_size=2.5):
 
     # Make rate maps for all trials in an ephys object
     for trial, _ in enumerate(obj.trial_iterators):
-
         # Load unloaded position and spike data if any
         try:
             obj.load_pos(trial, reload_flag=False)

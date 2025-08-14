@@ -65,7 +65,6 @@ def filter_cells_by_property(
 
     # Apply spike width filter if specified and if any units remain
     if spike_width_range_us is not None and len(units_to_keep) > 0:
-
         # Calculate spike widths
         widths_df: pd.DataFrame = spost.compute_template_metrics(
             analyzer,

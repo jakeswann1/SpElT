@@ -7,7 +7,6 @@ import spikeinterface.sorters as ss
 
 
 def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
-
     sorting_path = Path(f"{base_folder}/{recording_name[:6]}_{sorting_suffix}")
 
     if (sorting_path).is_dir():

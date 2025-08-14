@@ -14,7 +14,7 @@ def load_session(obj, lfp_sampling_rate):
     for i in range(len(obj.trial_list)):
         obj.load_metadata(i)
         obj.load_pos(i)
-        obj.load_lfp(i, lfp_sampling_rate),
+        (obj.load_lfp(i, lfp_sampling_rate),)
     obj.load_spikes("good")
 
 

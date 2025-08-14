@@ -6,7 +6,6 @@ from joblib import Parallel, delayed
 
 
 def compute_shuffle(spike_times_real, pos_sample_times, pos_bin_idx, pos_sampling_rate):
-
     # Shuffle spike times
     spike_times_shuffled = nap.shuffle_ts_intervals(spike_times_real)
     spike_times_shuffled = np.array(spike_times_shuffled.as_series().index)

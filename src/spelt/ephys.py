@@ -577,9 +577,7 @@ class ephys:  # noqa: N801
         # Bandpass filter
         if bandpass_filter is not None:
             recording = spre.bandpass_filter(
-                recording,
-                freq_min=bandpass_filter[0],
-                freq_max=bandpass_filter[1],
+                recording, freq_min=bandpass_filter[0], freq_max=bandpass_filter[1]
             )
 
         # AXONA ONLY: clip values of >+- 32000
@@ -606,9 +604,7 @@ class ephys:  # noqa: N801
             recording = recording.load(f"{temp_folder}.zarr")
 
             lfp_data = recording.get_traces(
-                segment_index=trial_iterator,
-                channel_ids=channels,
-                return_scaled=True,
+                segment_index=trial_iterator, channel_ids=channels, return_scaled=True
             ).astype(float)
 
             lfp_timestamps = recording.get_times(segment_index=trial_iterator)
@@ -943,7 +939,6 @@ class ephys:  # noqa: N801
         recording_list = []
         # Create list of recording objects
         for trial_iterator in self.trial_iterators:
-
             if self.recording_type == "nexus":
                 path = self.recording_path / f"{self.trial_list[trial_iterator]}.set"
                 probe_path = Path(__file__).parent / "axona_utils" / "probes"
@@ -993,7 +988,6 @@ class ephys:  # noqa: N801
         )
 
     def _load_templates(self, clusters_to_load=None):
-
         if not self.analyzer.has_extension("waveforms"):
             self.analyzer.compute(["random_spikes", "waveforms"])
 
@@ -1006,7 +1000,6 @@ class ephys:  # noqa: N801
         return templates
 
     def _load_waveforms(self, clusters_to_load=None):
-
         if not self.analyzer.has_extension("waveforms"):
             self.analyzer.compute(["random_spikes", "waveforms"])
 
@@ -1016,7 +1009,6 @@ class ephys:  # noqa: N801
         return waveforms
 
     def _load_extremum_channels(self, clusters_to_load=None):
-
         # try loading from sorting properties
         try:
             extremum_channels = self.analyzer.sorting.get_property("ch")

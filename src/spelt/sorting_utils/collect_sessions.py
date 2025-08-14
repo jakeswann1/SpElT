@@ -14,7 +14,6 @@ def parse_session_info(session):
 def load_and_process_recording(
     trial_info, trial, probe_to_sort, base_folder, area=None
 ):
-
     if probe_to_sort == "NP2_openephys":
         try:
             recording = se.read_openephys(
@@ -44,7 +43,6 @@ def load_and_process_recording(
 
 
 def collect_trial_info(sheet, trial):
-
     trial_data = sheet[sheet["trial_name"] == trial].iloc[0]
     trial_info = {"path": trial_data["path"], "probe_type": trial_data["probe_type"]}
     # Check for 'Areas' column and include it if present
@@ -79,7 +77,6 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
     recording_list = [[] for _ in session_list]
 
     for i, session in enumerate(session_list):
-
         base_session, area = parse_session_info(session)
         for j, trial in enumerate(trial_list):
             if area_list is None or (area in area_list[j] and base_session in trial):

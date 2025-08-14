@@ -53,7 +53,7 @@ def visualize_place_fields(
                     field_rates_plot,
                     alpha=0.3,
                     color=f"C{i}",
-                    label=f"Field {i+1}" if i == 0 else f"_Field {i+1}",
+                    label=f"Field {i + 1}" if i == 0 else f"_Field {i + 1}",
                 )
 
             if metrics and i < len(metrics.get("metrics", [])):
@@ -255,11 +255,11 @@ def _plot_phase_regression_lines_fixed(
         if p_val < 0.05:
             line_style = "-"  # Green solid line for significant
             line_color = "green"
-            line_label = f"Regression Field {i+1} (p<0.05)" if i == 0 else None
+            line_label = f"Regression Field {i + 1} (p<0.05)" if i == 0 else None
         else:
             line_style = "--"  # Red dashed line for non-significant
             line_color = "red"
-            line_label = f"Regression Field {i+1} (n.s.)" if i == 0 else None
+            line_label = f"Regression Field {i + 1} (n.s.)" if i == 0 else None
 
         # FIXED METHOD: Use the actual bin data to determine proper unwrapping
         if len(bin_centers) >= 3 and len(bin_means) >= 3:
@@ -330,7 +330,7 @@ def _plot_phase_regression_lines_fixed(
                             )
 
             except Exception as e:
-                print(f"Warning: Could not plot regression line for field {i+1}: {e}")
+                print(f"Warning: Could not plot regression line for field {i + 1}: {e}")
                 # Fallback to simple method
                 _plot_simple_regression_line(
                     ax2,
@@ -476,7 +476,7 @@ def _add_regression_bin_visualization(
             alpha=0.8,
             edgecolors="black",
             linewidth=1,
-            label=f"Regression Data Field {field_idx+1}" if offset == 0 else None,
+            label=f"Regression Data Field {field_idx + 1}" if offset == 0 else None,
             zorder=5,  # Plot on top of other elements
         )
 
@@ -490,7 +490,7 @@ def _add_regression_bin_visualization(
     ax2.text(
         text_x,
         text_y,
-        f"Field {field_idx+1}: {n_bins_used}/{n_bins_requested} bins",
+        f"Field {field_idx + 1}: {n_bins_used}/{n_bins_requested} bins",
         fontsize=9,
         color=color,
         weight="bold",

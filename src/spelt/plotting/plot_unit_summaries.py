@@ -16,7 +16,6 @@ def plot_unit_summaries(
     output_folder: Path | None = None,
     show: bool = True,
 ):
-
     required_extensions = [
         "random_spikes",
         "waveforms",
@@ -37,9 +36,7 @@ def plot_unit_summaries(
         sw.plot_unit_summary(
             analyzer,
             unit_id,
-            subwidget_kwargs={
-                "amplitudes": {"segment_indices": segments},
-            },
+            subwidget_kwargs={"amplitudes": {"segment_indices": segments}},
         )
 
         if output_folder:

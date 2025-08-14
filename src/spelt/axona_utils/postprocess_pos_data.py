@@ -290,7 +290,6 @@ def calculate_speed(pos, pos_sample_rate, pix_per_metre):
 
 # Function to process position data
 def postprocess_pos_data(posdata, max_speed, smoothing_window_size):
-
     # Check for LED swaps and apply LED swap filter
     # Check if 'led_pix' is in the posdata
     if "led_pix" in posdata:

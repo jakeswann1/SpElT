@@ -168,10 +168,10 @@ def cl_regression(x, phase, min_slope, max_slope):
         raise ValueError("The length of x is too small: len(x) < 2.")
 
     if not isinstance(min_slope, (float, int)):
-        raise ValueError("The " "min_slope" " parameter must be a scalar")
+        raise ValueError("The min_slope parameter must be a scalar")
 
     if not isinstance(max_slope, (float, int)):
-        raise ValueError("The " "max_slope" " parameter must be a scalar")
+        raise ValueError("The max_slope parameter must be a scalar")
 
     assert min_slope < max_slope, "min_slope < max_slope"
 

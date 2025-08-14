@@ -311,7 +311,7 @@ def process_arm_csd(
     # Calculate CSD
     print(
         f"""Calculating {arm_type} CSD using
-        {len(np.unique(arm_cycle_df['Cycle Index']))} theta cycles"""
+        {len(np.unique(arm_cycle_df["Cycle Index"]))} theta cycles"""
     )
     arm_csd_df, arm_csd_labels = calculate_csd_df(arm_cycle_df.T)
 

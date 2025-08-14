@@ -137,7 +137,6 @@ def _do_sift(data):
 
 
 def _do_one_sift(data):
-
     upper = _get_upper_spline(data)
     lower = -_get_upper_spline(-data)
     # upper=jinterp(find(maxes),data(maxes),xs);

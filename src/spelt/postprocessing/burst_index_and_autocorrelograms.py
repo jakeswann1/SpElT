@@ -147,9 +147,7 @@ def plot_autocorrelograms_with_dropdown(autocorrelograms):
 
     # Create a dropdown widget with cluster IDs
     cluster_dropdown = widgets.Dropdown(
-        options=list(autocorrelograms.keys()),
-        description="Cluster ID:",
-        disabled=False,
+        options=list(autocorrelograms.keys()), description="Cluster ID:", disabled=False
     )
 
     # Display the dropdown widget and plot the selected autocorrelogram

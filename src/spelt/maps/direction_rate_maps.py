@@ -62,7 +62,7 @@ def make_direction_rate_map(spike_times, frame_times, directions, n_bins):
     # Bin directions into n_bins
     direction_bins = np.linspace(0, 360, n_bins + 1)
     bin_labels = [
-        f"{direction_bins[i]:.1f}-{direction_bins[i+1]:.1f}"
+        f"{direction_bins[i]:.1f}-{direction_bins[i + 1]:.1f}"
         for i in range(len(direction_bins) - 1)
     ]
     frame_df["Direction_Bin"] = pd.cut(

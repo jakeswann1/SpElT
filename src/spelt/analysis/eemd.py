@@ -161,10 +161,7 @@ def calculate_welch_psd(
 
 
 def calculate_peak_frequencies(
-    imfs: np.ndarray,
-    fs: float,
-    channel: int = 0,
-    welch_nperseg: int | None = None,
+    imfs: np.ndarray, fs: float, channel: int = 0, welch_nperseg: int | None = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Calculate peak frequencies for each IMF and group them into frequency bands.
@@ -318,7 +315,9 @@ def plot_emd_analysis(
     # Plot 1: Original signals
     ax1 = axes[0]
     for ch in range(min(n_channels, 4)):  # Show max 4 channels
-        ax1.plot(t_display, signal[time_slice, ch], label=f"Channel {ch+1}", alpha=0.8)
+        ax1.plot(
+            t_display, signal[time_slice, ch], label=f"Channel {ch + 1}", alpha=0.8
+        )
     ax1.set_title(
         f"Original Multi-channel Signal ({t_display[0]:.1f}-{t_display[-1]:.1f}s)"
     )
@@ -332,8 +331,8 @@ def plot_emd_analysis(
     n_imfs_to_show = min(max_imfs_display, n_imfs)
     for i in range(n_imfs_to_show):
         offset = i * 2 * np.std(imfs[i, time_slice, channel])
-        ax2.plot(t_display, imfs[i, time_slice, channel] + offset, label=f"IMF {i+1}")
-    ax2.set_title(f"IMFs - Channel {channel+1}")
+        ax2.plot(t_display, imfs[i, time_slice, channel] + offset, label=f"IMF {i + 1}")
+    ax2.set_title(f"IMFs - Channel {channel + 1}")
     ax2.set_xlabel("Time (s)")
     ax2.set_ylabel("Amplitude (offset)")
     ax2.legend()
@@ -483,7 +482,7 @@ def plot_emd_analysis(
             freqs_plot,
             psd_z,
             color=colors[i],
-            label=f"IMF {i+1}",
+            label=f"IMF {i + 1}",
             linewidth=2,
             alpha=0.8,
         )
@@ -502,7 +501,7 @@ def plot_emd_analysis(
             arrowprops={"arrowstyle": "->", "color": color, "alpha": 0.7},
         )
 
-    ax7.set_title(f"Z-scored Power Spectra (Welch) - Channel {channel+1}")
+    ax7.set_title(f"Z-scored Power Spectra (Welch) - Channel {channel + 1}")
     ax7.set_xlabel("Frequency (Hz)")
     ax7.set_ylabel("Z-scored Power")
     ax7.grid(True, alpha=0.3)
@@ -526,7 +525,7 @@ def plot_emd_analysis(
                 freqs_plot,
                 psd_plot,
                 color=colors[i],
-                label=f"IMF {i+1}",
+                label=f"IMF {i + 1}",
                 linewidth=2,
                 alpha=0.8,
             )
@@ -546,7 +545,7 @@ def plot_emd_analysis(
             arrowprops={"arrowstyle": "->", "color": color, "alpha": 0.7},
         )
 
-    ax8.set_title(f"Raw Power Spectra (Welch) - Channel {channel+1}")
+    ax8.set_title(f"Raw Power Spectra (Welch) - Channel {channel + 1}")
     ax8.set_xlabel("Frequency (Hz)")
     ax8.set_ylabel("Power Spectral Density (log scale)")
     ax8.grid(True, alpha=0.3)
@@ -565,12 +564,12 @@ def plot_emd_analysis(
         if i == n_imfs - 1:
             imf_labels.append("Residue")
         else:
-            imf_labels.append(f"IMF {i+1}")
+            imf_labels.append(f"IMF {i + 1}")
 
     bars = ax9.bar(
         range(len(imf_powers)), imf_powers, alpha=0.7, color=colors[: len(imf_powers)]
     )
-    ax9.set_title(f"Power Distribution Across IMFs - Channel {channel+1}")
+    ax9.set_title(f"Power Distribution Across IMFs - Channel {channel + 1}")
     ax9.set_xlabel("Component")
     ax9.set_ylabel("Power (Variance)")
     ax9.set_xticks(range(len(imf_labels)))
@@ -627,12 +626,7 @@ def plot_emd_analysis(
         psd_z = np.zeros_like(psd_plot)
 
     ax10.semilogx(
-        freqs_plot,
-        psd_z,
-        label="Raw LFP",
-        color="black",
-        linewidth=2,
-        linestyle="--",
+        freqs_plot, psd_z, label="Raw LFP", color="black", linewidth=2, linestyle="--"
     )
 
     ax10.set_title("Z-scored Power Spectra by Frequency Band")
@@ -681,9 +675,9 @@ def plot_emd_analysis(
     plt.tight_layout()
 
     # Print summary
-    print(f"\nEMD Analysis Summary (Channel {channel+1}):")
+    print(f"\nEMD Analysis Summary (Channel {channel + 1}):")
     print(f"Number of IMFs: {n_imfs}")
-    print(f"Signal length: {n_samples} samples ({n_samples/fs:.2f}s)")
+    print(f"Signal length: {n_samples} samples ({n_samples / fs:.2f}s)")
     # print(f"Reconstruction MSE: {mse:.2e}")
     # print(f"Signal-to-Noise Ratio: {snr:.1f} dB")
     # print(f"Max absolute error: {max_error:.3f}")
