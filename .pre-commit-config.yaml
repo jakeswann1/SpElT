@@ -10,3 +10,11 @@ repos:
     hooks:
     -   id: black
         files: ^src/
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.7
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix]
+      # Run the formatter
+      - id: ruff-format

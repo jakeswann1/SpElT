@@ -25,7 +25,10 @@ dependencies = [
     "seaborn",
     "pynapple",
     "pywavelets",
-    "pycircstat"
+    "pycircstat",
+    "black",
+    "ruff",
+    "pre-commit"
     ]
 
 [project.urls]
