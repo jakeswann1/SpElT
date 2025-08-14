@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 
-def assign_sectors(xy_positions, pos_header):
+def assign_sectors(xy_positions, pos_header=None):
     """
     Assign sectors to given xy_positions based on a grid layout.
 
