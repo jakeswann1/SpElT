@@ -860,6 +860,9 @@ class ephys:  # noqa: N801
             "ttl_freq": ttl_freq,
             "pos_sampling_rate": pos_sampling_rate,
             "scaled_ppm": 400,
+            "header": raw_pos_data["header"],
+            "maze_roi": raw_pos_data["maze_roi"],
+            "maze_state": raw_pos_data["maze_state"],
         }
 
     def _load_bonsai_leds_data(

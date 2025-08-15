@@ -15,7 +15,8 @@ def sort_np2(recording, recording_name, base_folder, sorting_suffix, area):
             print(f"Sorting loaded from file {sorting_path}\n")
         except ValueError as e:
             print(
-                f"Sorting at {sorting_path} failed to load - try deleting the folder and rerun"
+                f"""Sorting at {sorting_path} failed to load -
+                try deleting the folder and rerun"""
             )
             raise ValueError from e
     else:

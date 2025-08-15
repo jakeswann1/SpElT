@@ -72,6 +72,12 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
         # currently hard-coded based on the video standard size
         ppm = 840  # TODO: make dynamic from video size -
         print("Estimating PPM for open-field at 840 based on a 520x520 video")
+        x_min = 0
+        x_max = 520
+        y_min = 0
+        y_max = 520
+        maze_roi = None
+        maze_state = None
 
     elif trial_type == "t-maze":
         frame_count = data.loc[:, "Value.Item1"]
@@ -81,6 +87,13 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
         # currently hard-coded based on the video standard size
         ppm = 1000  # TODO: make dynamic from video size -
         print("Estimating PPM for t-maze at 1000 based on a 1000x600 video")
+        x_min = 0
+        x_max = 1000
+        y_min = 0
+        y_max = 600
+        maze_roi = data.loc[:, "Value.Item4"]
+        # Collect all columns containing "Value.Item5" or "Value.Item6"
+        maze_state = data.loc[:, data.columns.str.contains("Value.Item5|Value.Item6")]
     else:
         raise ValueError(f'Trial type "{trial_type}" not recognised')
 
@@ -104,7 +117,6 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
     pointgrey_timestamps = pointgrey_timestamps - min(pointgrey_timestamps)
 
     # Estimate sampling rate
-
     # Parse bonsai timestamps - convert to seconds where 0 is the start of the recording
     bonsai_timestamps = bonsai_timestamps.apply(lambda x: parser.isoparse(x))
     bonsai_timestamps = bonsai_timestamps - bonsai_timestamps.iloc[0]
@@ -122,6 +134,9 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
         "pixels_per_metre": ppm,
         "scaled_ppm": goal_ppm,
         "start_time": start_time,
+        "maze_roi": maze_roi,
+        "maze_state": maze_state,
+        "header": {"min_x": x_min, "max_x": x_max, "min_y": y_min, "max_y": y_max},
     }
 
     return raw_pos_data
