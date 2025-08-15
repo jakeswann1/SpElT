@@ -70,7 +70,7 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
         position = data.loc[:, ["Value.Item3.X", "Value.Item3.Y"]].T
         bonsai_timestamps = data.loc[:, "Timestamp"]
         # currently hard-coded based on the video standard size
-        ppm = 840  # TODO: make dynamic from video size -
+        ppm = 840  # TODO: make dynamic from real video size -
         print("Estimating PPM for open-field at 840 based on a 520x520 video")
         x_min = 0
         x_max = 520
@@ -85,7 +85,7 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
         position = data.loc[:, ["Value.Item3.X", "Value.Item3.Y"]].T
         bonsai_timestamps = data.loc[:, "Timestamp"]
         # currently hard-coded based on the video standard size
-        ppm = 1000  # TODO: make dynamic from video size -
+        ppm = 1000  # TODO: make dynamic from real video size -
         print("Estimating PPM for t-maze at 1000 based on a 1000x600 video")
         x_min = 0
         x_max = 1000
@@ -94,11 +94,20 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
         maze_roi = data.loc[:, "Value.Item4"]
         # Collect all columns containing "Value.Item5" or "Value.Item6"
         maze_state = data.loc[:, data.columns.str.contains("Value.Item5|Value.Item6")]
+        maze_state.columns = [
+            "Door1",
+            "Door2",
+            "Door3",
+            "Door4",
+            "Door5",
+            "Door6",
+            "Feeder1",
+            "Feeder2",
+        ]
     else:
         raise ValueError(f'Trial type "{trial_type}" not recognised')
 
     data.set_index(frame_count, inplace=True)
-    # TODO add extracting maze state information, conditionally on trial type
 
     # Scale pos data to specific PPM
     goal_ppm = 400  # HARD CODED FOR NOW
