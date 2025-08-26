@@ -371,7 +371,8 @@ class ephys:  # noqa: N801
         Args:
             trial_list: The index of the trial(s) to load. Default is all
             sampling_rate: The desired sampling rate for the LFP data
-            channels: A list of channel IDs to load. Default is all
+            channels: A list of channel IDs to load. If None, loads all channels.
+                    If specified, subsets data to only those channels.
             reload_flag (bool, optional): if true, forces reloading of data.
                 If false, only loads data for trials with no LFP data loaded
             bandpass_filter: apply bandpass filter with min and max frequency.
@@ -384,8 +385,23 @@ class ephys:  # noqa: N801
         trial_list = self.normalize_trial_list(trial_list, "lfp")
 
         for trial_iterator in trial_list:
-            if not self.should_load_data(trial_iterator, "lfp", reload_flag):
-                continue
+            # Check if we need to reload or apply channel selection
+            should_reload = (
+                reload_flag
+                or self.lfp_data[trial_iterator] is None
+                or (
+                    channels is not None
+                    and not self._has_requested_channels(trial_iterator, channels)
+                )
+            )
+
+            if not should_reload:
+                # Apply channel selection if needed
+                if channels is not None:
+                    self._subset_lfp_data(trial_iterator, channels)
+                if self.lfp_data[trial_iterator] is not None:
+                    print(f"LFP already loaded for trial {trial_iterator}")
+                    continue
 
             lfp_path = self.recording_path / f"lfp_data_trial{trial_iterator}.pkl"
 
@@ -405,6 +421,11 @@ class ephys:  # noqa: N801
                     )
 
                     self.lfp_data[trial_iterator] = lfp_data
+
+                    # Apply channel selection if needed
+                    if channels is not None:
+                        self._subset_lfp_data(trial_iterator, channels)
+
                     print(f"Loaded preprocessed LFP data for trial {trial_iterator}")
                     continue
                 except Exception as e:
@@ -422,6 +443,60 @@ class ephys:  # noqa: N801
                 bandpass_filter,
                 save_to_disk=from_preprocessed,
             )
+
+    def _has_requested_channels(
+        self, trial_iterator: int, requested_channels: list[int]
+    ) -> bool:
+        """Check if LFP data already contains the requested channels."""
+        if self.lfp_data[trial_iterator] is None:
+            return False
+
+        available_channels = self.lfp_data[trial_iterator].get("channels")
+        if available_channels is None:
+            return True  # Assume all channels if not specified
+
+        available_channels_int = [int(ch) for ch in available_channels]
+        return all(ch in available_channels_int for ch in requested_channels)
+
+    def _subset_lfp_data(self, trial_iterator: int, requested_channels: list[int]):
+        """Subset LFP data to only include requested channels."""
+        if self.lfp_data[trial_iterator] is None:
+            return
+
+        lfp_data = self.lfp_data[trial_iterator]
+        available_channels = lfp_data.get("channels")
+
+        if available_channels is None:
+            # If no channel info, assume channels are in order
+            available_channels = list(range(lfp_data["data"].shape[1]))
+        else:
+            available_channels = [int(ch) for ch in available_channels]
+
+        # Find indices of requested channels
+        try:
+            channel_indices = [
+                available_channels.index(ch) for ch in requested_channels
+            ]
+        except ValueError as e:
+            missing_channels = [
+                ch for ch in requested_channels if ch not in available_channels
+            ]
+            raise ValueError(
+                f"Trial {trial_iterator}: Requested channels {missing_channels} "
+                f"not found in available data (available: {available_channels})."
+            ) from e
+
+        # Subset the data
+        lfp_data["data"] = lfp_data["data"][:, channel_indices]
+        lfp_data["channels"] = [str(ch) for ch in requested_channels]
+
+        # Subset theta phase data if it exists
+        if "theta_phase" in lfp_data:
+            lfp_data["theta_phase"] = lfp_data["theta_phase"][:, channel_indices]
+            lfp_data["cycle_numbers"] = lfp_data["cycle_numbers"][:, channel_indices]
+            lfp_data["theta_freqs"] = {
+                ch: lfp_data["theta_freqs"][ch] for ch in requested_channels
+            }
 
     def load_ttl(
         self,
@@ -478,6 +553,233 @@ class ephys:  # noqa: N801
                 trial_iterator, output_flag, save_to_disk=from_preprocessed
             )
 
+    def load_theta_phase(
+        self,
+        trial_list: int | list[int] | None = None,
+        channels: list[int] | None = None,
+        clip_value: int | None = 32000,
+        output_flag: bool = True,
+        reload_flag: bool = False,
+        from_preprocessed: bool = True,
+    ):
+        """
+        Load theta phase data for specified trials and append to existing LFP data.
+
+        Args:
+            trial_list: The index of the trial(s) to load. Default is all
+            channels: A list of channel IDs to use. If None, uses all available channels
+                    If specified, subsets data to only those channels.
+            clip_value: Clipping value for LFP data (32000 for Axona, None for others)
+            output_flag: If True, print loading information
+            reload_flag: If True, forces reloading of data
+            from_preprocessed: If True, loads preprocessed theta phase data from disk
+
+        Modifies:
+            self.lfp_data[trial]['theta_phase']: Phase values for each channel
+            self.lfp_data[trial]['cycle_numbers']: Cycle numbers for each channel
+            self.lfp_data[trial]['theta_freqs']: Peak theta frequencies for each channel
+
+        Also subsets all LFP data to requested channels if specified.
+        """
+
+        # Use all channels if not specified
+        if channels is None and output_flag:
+            print("Using all available channels for theta phase analysis")
+
+        trial_list = self.normalize_trial_list(trial_list, "theta_phase")
+
+        for trial_iterator in trial_list:
+            # Check if theta phase already exists and we're not reloading
+            if (
+                not reload_flag
+                and self.lfp_data[trial_iterator] is not None
+                and "theta_phase" in self.lfp_data[trial_iterator]
+            ):
+                # Apply channel selection if needed
+                if channels is not None:
+                    self._subset_lfp_data(trial_iterator, channels)
+
+                if output_flag:
+                    channel_info = (
+                        f" (channels {channels})" if channels else " (all channels)"
+                    )
+                    print(
+                        "Theta phase data already loaded for trial",
+                        {trial_iterator},
+                        {channel_info},
+                    )
+                continue
+
+            theta_phase_path = (
+                self.recording_path / f"theta_phase_trial_{trial_iterator}.pkl"
+            )
+
+            # Try to load from preprocessed data first (if enabled and file exists)
+            if from_preprocessed and theta_phase_path.exists():
+                try:
+                    with theta_phase_path.open("rb") as f:
+                        saved_theta_data = pkl.load(f)  # noqa: S301
+
+                    # Ensure LFP data is loaded
+                    if self.lfp_data[trial_iterator] is None:
+                        if output_flag:
+                            print(f"Loading LFP data for trial {trial_iterator}")
+                        self.load_lfp(
+                            trial_list=[trial_iterator], from_preprocessed=True
+                        )
+
+                    # Add theta phase data to LFP data
+                    self.lfp_data[trial_iterator].update(
+                        {
+                            "theta_phase": saved_theta_data["theta_phase"],
+                            "cycle_numbers": saved_theta_data["cycle_numbers"],
+                            "theta_freqs": saved_theta_data["theta_freqs"],
+                        }
+                    )
+
+                    # Apply channel selection if needed
+                    if channels is not None:
+                        self._subset_lfp_data(trial_iterator, channels)
+
+                    if output_flag:
+                        channel_info = (
+                            f" (channels {channels})" if channels else " (all channels)"
+                        )
+                        print(
+                            "Loaded preprocessed theta phase data for trial",
+                            {trial_iterator},
+                            {channel_info},
+                        )
+                    continue
+
+                except Exception as e:
+                    if output_flag:
+                        print(
+                            "Error loading preprocessed theta phase for trial",
+                            {trial_iterator},
+                            {e},
+                        )
+                        print("Falling back to raw data processing...")
+
+            # Load/process from raw data
+            self._load_and_save_theta_phase_data(
+                trial_iterator,
+                channels,
+                clip_value,
+                output_flag,
+                save_to_disk=from_preprocessed,
+            )
+
+        return self.lfp_data
+
+    def _load_and_save_theta_phase_data(
+        self,
+        trial_iterator: int,
+        channels: list[int] | None,
+        clip_value: int | None,
+        output_flag: bool,
+        save_to_disk: bool = True,
+    ):
+        """
+        Helper to process theta phase data from existing LFP and optionally save to disk
+
+        Args:
+            trial_iterator: The trial index to process
+            channels: List of channel IDs to process (None for all channels)
+            clip_value: Clipping value for LFP data
+            output_flag: If True, print processing information
+            save_to_disk: If True, save the processed data to disk for future use
+        """
+        from spelt.analysis.get_peak_frequencies import get_theta_frequencies
+        from spelt.analysis.get_signal_phase import get_signal_phase
+
+        if output_flag:
+            print(f"Processing theta phase data for trial {trial_iterator}")
+
+        # Check if LFP data is loaded for this trial
+        if self.lfp_data[trial_iterator] is None:
+            if output_flag:
+                print(f"Loading LFP data for trial {trial_iterator}")
+            self.load_lfp(
+                trial_list=[trial_iterator], channels=channels, from_preprocessed=True
+            )
+
+        try:
+            # Get LFP data for this trial
+            lfp_data = self.lfp_data[trial_iterator]["data"]  # Shape: (time, channels)
+            lfp_sampling_rate = self.lfp_data[trial_iterator]["sampling_rate"]
+            available_channels = self.lfp_data[trial_iterator].get("channels")
+
+            # Use all available channels if none specified
+            if channels is None:
+                channels = (
+                    [int(ch) for ch in available_channels]
+                    if available_channels
+                    else list(range(lfp_data.shape[1]))
+                )
+
+            # Find peak theta frequencies for all channels
+            theta_freqs = get_theta_frequencies(lfp_data, lfp_sampling_rate)
+            theta_freqs_dict = dict(zip(channels, theta_freqs))
+
+            # Calculate theta phase for all channels
+            theta_phase, cycle_numbers = get_signal_phase(
+                lfp_data,
+                lfp_sampling_rate,
+                peak_freq=theta_freqs,
+                clip_value=clip_value,
+            )
+
+            # Add theta phase data to existing LFP data
+            self.lfp_data[trial_iterator].update(
+                {
+                    "theta_phase": theta_phase,
+                    "cycle_numbers": cycle_numbers,
+                    "theta_freqs": theta_freqs_dict,
+                }
+            )
+
+            # Apply channel selection if needed
+            if channels is not None and len(channels) < lfp_data.shape[1]:
+                self._subset_lfp_data(trial_iterator, channels)
+
+            if output_flag:
+                print(f"Processed theta phase data for trial {trial_iterator}")
+
+            # Save theta phase data separately to disk for future loading if requested
+            if save_to_disk:
+                theta_phase_path = (
+                    self.recording_path / f"theta_phase_trial_{trial_iterator}.pkl"
+                )
+                try:
+                    theta_phase_data = {
+                        "theta_phase": theta_phase,
+                        "cycle_numbers": cycle_numbers,
+                        "theta_freqs": theta_freqs_dict,
+                    }
+
+                    with theta_phase_path.open("wb") as f:
+                        pkl.dump(theta_phase_data, f)
+
+                    # Print saved file size
+                    file_size = theta_phase_path.stat().st_size
+                    if output_flag:
+                        print(
+                            f"Saved trial {trial_iterator} theta phase data to "
+                            f"{theta_phase_path} ({file_size / 1e6:.2f} MB)"
+                        )
+
+                except Exception as e:
+                    print(f"Warning: Could not save theta phase data to disk: {e}")
+
+        except Exception as e:
+            print(
+                "Error processing theta phase data for trial",
+                {trial_iterator},
+                {str(e)},
+            )
+            # Don't set to None since LFP data might still be valid
+
     def _validate_lfp_parameters(
         self,
         saved_data: dict,
@@ -527,29 +829,6 @@ class ephys:  # noqa: N801
                 f"doesn't match saved data ({saved_filter}). "
                 f"Use from_preprocessed=False to reload with new parameters."
             )
-
-        # Check channels if specified
-        if requested_channels is not None:
-            saved_channels = saved_data.get("channels")
-
-            # Convert requested channels to strings to match saved format
-            requested_channels_str = [str(ch) for ch in requested_channels]
-
-            # Check if saved_channels is None (all channels were saved)
-            if saved_channels is not None:
-                # Check if all requested channels are available in saved data
-                missing_channels = set(requested_channels_str) - set(saved_channels)
-                raise (
-                    ValueError(
-                        f"""
-                    Trial {trial_iterator}: Requested channels {list(missing_channels)}
-                    not found in saved data (available: {saved_channels}).
-                    Use from_preprocessed=False to reload with new channels.
-                    """
-                    )
-                    if missing_channels
-                    else None
-                )
 
     def _load_and_save_lfp_data(
         self,
