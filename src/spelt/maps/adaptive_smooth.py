@@ -30,7 +30,8 @@ def update_smoothed_maps(smoothed_spk, smoothed_pos, f_spk, f_pos, f_vis, bins_p
         f_spk (ndarray): Filtered spike map.
         f_pos (ndarray): Filtered position map.
         f_vis (ndarray): Filtered visited template.
-        bins_passed (ndarray): Boolean array indicating which bins passed the adaptive smoothing criteria.
+        bins_passed (ndarray): Boolean array indicating which bins passed
+            the adaptive smoothing criteria.
     """
     smoothed_spk[bins_passed] = f_spk[bins_passed] / f_vis[bins_passed]
     smoothed_pos[bins_passed] = f_pos[bins_passed] / f_vis[bins_passed]
@@ -50,7 +51,11 @@ def finalize_smoothed_rate_map(smoothed_spk, smoothed_pos, pos_map):
     """
     with np.errstate(divide="ignore", invalid="ignore"):
         smoothed_rate = smoothed_spk / smoothed_pos
-    smoothed_rate[pos_map == 0] = np.nan
+
+    # Only set to NaN where smoothed_pos is 0 (no valid smoothing occurred)
+    # Don't use original pos_map as smoothing can expand beyond originally visited areas
+    smoothed_rate[smoothed_pos == 0] = np.nan
+
     return smoothed_rate
 
 
@@ -63,8 +68,8 @@ def handle_empty_maps(spk_map, pos_map):
         pos_map (ndarray): Position map.
 
     Returns:
-        tuple: Tuple containing NaN-filled arrays for smoothed spike, position, and rate maps,
-               and NaN for the median radius.
+        tuple: Tuple containing NaN-filled arrays for smoothed spike, position,
+            and rate maps, and NaN for the median radius.
     """
     nan_map = np.full_like(pos_map, np.nan)
     return nan_map, nan_map, nan_map, np.nan

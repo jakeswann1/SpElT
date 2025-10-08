@@ -151,6 +151,7 @@ class ephys:  # noqa: N801
 
         # Initialise data variables
         self.spike_data = {}
+        self.unit_spikes = None
         self.lfp_data = [None] * len(self.trial_list)
         self.sync_data = [None] * len(self.trial_list)
         self.pos_data = [None] * len(self.trial_list)

@@ -1,7 +1,8 @@
 import os
-import pandas as pd
+
 import spikeinterface.extractors as se
-from ..axona_utils.axona_preprocessing import preprocess_axona, pos_from_bin
+
+from ..axona_utils.axona_preprocessing import pos_from_bin, preprocess_axona
 
 
 def parse_session_info(session):
@@ -38,7 +39,8 @@ def load_and_process_recording(
         )
     else:
         raise ValueError(
-            'Probe type not recognized, currently only "NP2_openephys" and "5x12_buz" are supported.'
+            "Probe type not recognized, currently only "
+            '"NP2_openephys" and "5x12_buz" are supported.'
         )
 
 
@@ -52,8 +54,8 @@ def collect_trial_info(sheet, trial):
 
 def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
     """
-    Collects recordings from a list of sessions and trials. The function will return a list of lists, where each
-    sublist corresponds to a session and contains the recordings for that session.
+    Collects recordings from a list of sessions and trials. Returns a list of lists,
+    where each sublist corresponds to a session and contains that session's recordings.
 
     Parameters
     ----------
@@ -101,7 +103,6 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
                 recording_list[i].append(recording_data)
 
             else:
-                # print(f"{area} not in {area_list[i]} or {base_session} not in {trial}")
                 pass
 
     return recording_list

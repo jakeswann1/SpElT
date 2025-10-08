@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+from spelt.ephys import ephys
 from spelt.maps.adaptive_smooth import adaptive_smooth
 
 
@@ -84,6 +85,9 @@ def make_rate_maps(
 
     # Populate the rate maps based on spike times
     for cluster, spike_times in spike_data.items():
+        # Create a copy of pos_map for each cell to avoid modifying the original
+        pos_map_copy = pos_map.copy()
+
         # Find the corresponding bins for each spike time
         binned_spikes = np.digitize(spike_times, pos_sample_times) - 1
         # Make spike map
@@ -92,16 +96,19 @@ def make_rate_maps(
         )
 
         # Set spike count to 0 where occupancy is 0 to avoid division by 0
-        spike_map[pos_map == 0] = 0
+        spike_map[pos_map_copy == 0] = 0
 
         # Smooth the spike map using an adaptive kernel
         if adaptive_smoothing:
-            _, pos_map, rate_map, _ = adaptive_smooth(spike_map, pos_map, alpha)
+            _, pos_map_smoothed, rate_map, _ = adaptive_smooth(
+                spike_map, pos_map_copy, alpha
+            )
+
             rate_maps_dict[cluster] = rate_map
         else:
             # Calculate the raw rate map by dividing spike count
             # by occupancy time (plus a small constant)
-            raw_rate_map = spike_map / (pos_map * dt + 1e-10)
+            raw_rate_map = spike_map / (pos_map_copy * dt + 1e-10)
             # Return raw rate and pos map if adaptive smoothing is not used
             rate_maps_dict[cluster] = raw_rate_map
 
@@ -450,7 +457,7 @@ def bin_pos_data_dlc(
     return pos_bin_idx, pos_sample_times, pos_sampling_rate
 
 
-def make_rate_maps_from_obj(obj, bin_size=2.5):
+def make_rate_maps_from_obj(obj: ephys, bin_size=2.5):
     rate_maps = {}
     pos_map = {}
     max_rates = {}
@@ -465,15 +472,10 @@ def make_rate_maps_from_obj(obj, bin_size=2.5):
     else:
         spike_data = obj.unit_spikes
 
+    obj.load_pos(reload_flag=False)
+
     # Make rate maps for all trials in an ephys object
     for trial, _ in enumerate(obj.trial_iterators):
-        # Load unloaded position and spike data if any
-        try:
-            obj.load_pos(trial, reload_flag=False)
-        except Exception as e:
-            print(f"Error loading position data for trial {trial}: {e}")
-            continue
-
         current_trial_spikes = spike_data[trial]
 
         # Filter spikes for speed
