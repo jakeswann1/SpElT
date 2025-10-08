@@ -7,8 +7,8 @@ def get_traversal_cycles(
     cycle_numbers: np.ndarray,
     lfp_timestamps: np.ndarray,
     lfp_sampling_rate: float,
-    gap_threshold: float = 0.025,
-    min_segment_size: int = 2,
+    gap_threshold: float = 1,
+    min_segment_size: int = 10,
 ) -> list[np.ndarray]:
     """
     Efficiently finds theta cycle IDs for individual arm traversals.
@@ -190,7 +190,6 @@ def get_data_for_traversals(
     ]:
         if idx not in df.index:
             df.loc[idx] = np.nan
-
     return df
 
 
@@ -203,7 +202,7 @@ def drop_extreme_cycles(df):
 
     Returns:
         pd.DataFrame: A new DataFrame with specified columns dropped.
-    """
+    """  # noqa E501
 
     # Find the rows for 'Cycle Index' and 'Traversal Index'
     cycle_index_row = df.index[df.index == "Cycle Index"][0]
@@ -216,7 +215,7 @@ def drop_extreme_cycles(df):
 
     # Group by 'Traversal Index' and find columns to drop
     columns_to_drop = set()
-    for name, group in df_transposed.groupby("Traversal Index"):
+    for _, group in df_transposed.groupby("Traversal Index"):
         # Find min and max cycle number in each group
         cycle_min = np.nanmin(np.unique(group["Cycle Index"]))
         cycle_max = np.nanmax(np.unique(group["Cycle Index"]))

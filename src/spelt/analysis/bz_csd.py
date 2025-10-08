@@ -285,6 +285,7 @@ def process_arm_csd(
     arm_cycles = get_traversal_cycles(
         arm_times, cycle_numbers, lfp_timestamps, lfp_sampling_rate
     )
+    print(len(arm_cycles), "total", arm_type, "arm traversals found")
 
     # Get lfp trace, theta phase, timestamps, speed, cycle index and traversal index
     arm_cycle_df = get_data_for_traversals(
@@ -297,16 +298,17 @@ def process_arm_csd(
         lfp_timestamps,
     )
 
-    # Drop cycles where any lfp data >= |32000| (clip value for axona)
-    def filter_func(x):
-        # If any value in the group is greater than 32000, exclude the whole group
-        if (x.drop("Cycle Index", axis=1).abs() >= 32000).any(axis=None):
-            return False
-        else:
-            return True
+    # # Drop cycles where any lfp data >= |32000| (clip value for axona)
+    # def filter_func(x):
+    #     # If any value in the group is greater than 32000, exclude the whole group
+    #     if (x.drop("Cycle Index", axis=1).abs() >= 32000).any(axis=None):
+    #         return False
+    #     else:
+    #         return True
 
-    arm_cycle_df = arm_cycle_df.T.groupby("Cycle Index").filter(filter_func)
-    print(arm_cycle_df[arm_cycle_df["Traversal Index"] == 37].shape)
+    arm_cycle_df = arm_cycle_df.T.groupby("Cycle Index")  # .filter(filter_func)
+    # print(arm_cycle_df[arm_cycle_df["Traversal Index"] == 37].shape)
+    print(arm_cycle_df)
 
     # Calculate CSD
     print(
@@ -337,3 +339,87 @@ def process_arm_csd(
     mean_arm_csd.columns = [trial]
 
     return arm_cycle_df, arm_csd_df, arm_csd_labels, arm_csd_theta_phase, mean_arm_csd
+
+
+def plot_mean_csd(
+    data: pd.DataFrame | pd.Series | dict[str, pd.DataFrame | pd.Series],
+    channel_depths: list[float],
+    title: str,
+    save_path: str,
+    plot_sem: bool = False,
+) -> None:
+    """
+    Plot CSD data - handles both single dataset and comparison between datasets.
+
+    Parameters:
+    -----------
+    data : pd.DataFrame, pd.Series, or dict[str, pd.DataFrame | pd.Series]
+        Single DataFrame/Series for mean CSD plot, or dict with dataset names as keys
+        for comparison plot (e.g., {"Centre": central_data, "Return": return_data})
+    channel_depths : list[float]
+        Channel depth values for y-tick labels
+    title : str
+        Plot title
+    save_path : str
+        Path to save the figure
+    plot_sem : bool, optional
+        Whether to plot standard error of the mean as shaded area
+    """
+    plt.figure()
+
+    if isinstance(data, pd.DataFrame):
+        # Single dataset plot
+        mean_values = data.mean(axis=1)
+        plt.plot(mean_values.values, mean_values.index, c="orange")
+
+        if plot_sem:
+            sem_values = data.sem(axis=1)
+            plt.fill_betweenx(
+                mean_values.index,
+                mean_values.values - sem_values.values,
+                mean_values.values + sem_values.values,
+                alpha=0.2,
+                color="orange",
+            )
+
+    else:
+        # Comparison plot
+        colors = ["orange", "blue", "green", "red", "purple"]
+
+        for i, (label, df) in enumerate(data.items()):
+            color = colors[i % len(colors)]
+
+            # Handle both Series and DataFrame inputs
+            if isinstance(df, pd.Series):
+                mean_values = df
+                has_multiple_columns = False
+            else:
+                mean_values = df.mean(axis=1) if df.shape[1] > 1 else df.iloc[:, 0]
+                has_multiple_columns = df.shape[1] > 1
+
+            plt.plot(mean_values.values, mean_values.index, label=label, c=color)
+
+            if plot_sem and has_multiple_columns:
+                sem_values = df.sem(axis=1)
+                plt.fill_betweenx(
+                    mean_values.index,
+                    mean_values.values - sem_values.values,
+                    mean_values.values + sem_values.values,
+                    alpha=0.2,
+                    color=color,
+                )
+
+        plt.legend()
+
+    # Common formatting
+    plt.gca().invert_yaxis()
+    plt.yticks(
+        list(data.values())[0].index if isinstance(data, dict) else data.index,
+        channel_depths,
+    )
+    plt.ylabel("Channel Depth (μm)")
+    plt.xlabel("CSD")
+    plt.axvline(x=0, color="grey", linestyle="--", dashes=[5, 5])
+    plt.title(title)
+    plt.savefig(save_path)
+    plt.show()

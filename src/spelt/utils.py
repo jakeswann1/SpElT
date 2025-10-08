@@ -86,6 +86,60 @@ def find_all_sessions(
     return session_dict
 
 
+def load_sessions_from_config(
+    config_path: str, config_name: str = "session_finder"
+) -> dict[str, str]:
+    """
+    Load session dictionary using YAML configuration file.
+
+    Parameters:
+    -----------
+    config_path : str
+        Path to the YAML configuration file
+    config_name : str, optional
+        Name of the configuration section to use (default: "session_finder")
+        Can also use example configurations like "examples.ca1_neuropixels"
+
+    Returns:
+    --------
+    dict[str, str]
+        Dictionary mapping session names to their full paths
+
+    Examples:
+    ---------
+    # Use main configuration
+    sessions = load_sessions_from_config('session_selection.yaml')
+
+    # Use example configuration
+    sessions = load_sessions_from_config('session_selection.yaml', 'spike_sorting')
+    """
+    import yaml
+
+    with open(config_path) as file:
+        config = yaml.safe_load(file)
+
+    # Navigate to the specified configuration section
+    config_parts = config_name.split(".")
+    session_config = config
+    for part in config_parts:
+        session_config = session_config[part]
+
+    # Extract parameters
+    sheet_path = session_config["sheet_path"]
+    data_path = session_config["data_path"]
+    filters = session_config["filters"]
+
+    # Call find_all_sessions with the configuration
+    return find_all_sessions(
+        sheet_path=sheet_path,
+        data_path=data_path,
+        raw_only=filters["raw_only"],
+        probe=filters["probe"],
+        animal=filters["animal"],
+        area=filters["area"],
+    )
+
+
 def make_df_all_sessions(session_dict, sheet_url):
     """
     Function to make a dataframe of all sessions and their paths
