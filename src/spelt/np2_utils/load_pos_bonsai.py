@@ -114,6 +114,11 @@ def load_pos_bonsai_jake(path, ppm, trial_type):
     scale_fact = goal_ppm / ppm
     position *= scale_fact
 
+    # Scale min and max X and Y in header
+    x_min, x_max, y_min, y_max = (
+        val * scale_fact for val in [x_min, x_max, y_min, y_max]
+    )
+
     # Parse pointgrey timestamps: from https://groups.google.com/g/bonsai-users/c/WD6mV94KAQs
     time = pointgrey_timestamps.to_numpy()
     cycle1 = (time >> 12) & 0x1FFF
