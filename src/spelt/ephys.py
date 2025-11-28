@@ -108,6 +108,11 @@ class ephys:  # noqa: N801
                 session = session[
                     session["Format"] != "thresholded"
                 ]  # Drops thresholded Axona recordings unless pos_only=True
+                if session.empty:
+                    raise ValueError(
+                        f"Session {self.animal}_{self.date_short} has no "
+                        f"non-thresholded recordings (all marked as thresholded)"
+                    )
             self.session = session
         except Exception as e:
             print("Google Sheet not found, please specify a valid URL", e)

@@ -5,6 +5,7 @@ This module provides a high-level interface for working with multiple ephys sess
 enabling parallel processing and eliminating repetitive for-loop code.
 """
 
+import traceback
 from functools import partial
 from typing import Any, Callable
 
@@ -14,6 +15,30 @@ from tqdm.auto import tqdm
 
 from .ephys import ephys
 from .utils import load_sessions_from_config
+
+
+class SessionProcessingError(Exception):
+    """Exception raised when a session fails to process."""
+
+    def __init__(
+        self, session_name: str, original_error: Exception, traceback_str: str
+    ):
+        self.session_name = session_name
+        self.original_error = original_error
+        self.traceback_str = traceback_str
+        super().__init__(
+            f"\nError processing session '{session_name}':\n"
+            f"  Error type: {type(original_error).__name__}\n"
+            f"  Error message: {str(original_error)}\n"
+            f"\nFull traceback:\n{traceback_str}"
+        )
+
+    def __reduce__(self):
+        """Make exception picklable for parallel processing."""
+        return (
+            SessionProcessingError,
+            (self.session_name, self.original_error, self.traceback_str),
+        )
 
 
 class SessionManager:
@@ -50,6 +75,7 @@ class SessionManager:
         sheet_path: str,
         subject_sheet_path: str | None = None,
         cache_objects: bool = False,
+        ephys_kwargs: dict | None = None,
     ):
         """
         Initialize the SessionManager.
@@ -60,12 +86,15 @@ class SessionManager:
             sheet_path: Google Sheets URL for session metadata
             subject_sheet_path: Optional Google Sheets URL for subject metadata
             cache_objects: If True, cache loaded ephys objects in memory (uses more RAM)
+            ephys_kwargs: Dict of kwargs to pass to ephys constructor
+                (e.g., {'pos_only': True})
         """
         self.config_path = config_path
         self.config_key = config_key
         self.sheet_path = sheet_path
         self.subject_sheet_path = subject_sheet_path
         self.cache_objects = cache_objects
+        self.ephys_kwargs = ephys_kwargs or {}
 
         # Load session dictionary from config
         self.session_dict = load_sessions_from_config(config_path, config_key)
@@ -83,7 +112,8 @@ class SessionManager:
 
         Parameters:
             session_name: Name of the session
-            **kwargs: Additional arguments to pass to ephys constructor
+            **kwargs: Additional arguments to pass to ephys constructor.
+                These override any ephys_kwargs set in __init__.
 
         Returns:
             ephys object for the session
@@ -92,7 +122,9 @@ class SessionManager:
             return self._object_cache[session_name]
 
         session_path = self.session_dict[session_name]
-        obj = ephys(path=session_path, sheet_url=self.sheet_path, **kwargs)
+        # Merge default ephys_kwargs with any overrides from kwargs
+        merged_kwargs = {**self.ephys_kwargs, **kwargs}
+        obj = ephys(path=session_path, sheet_url=self.sheet_path, **merged_kwargs)
 
         if self.cache_objects:
             self._object_cache[session_name] = obj
@@ -118,13 +150,19 @@ class SessionManager:
             show_progress: Whether to show a progress bar
             filter_sessions: Optional function to filter which sessions to process.
                            Takes session_name and returns True to include it.
-            return_exceptions: If True, return exceptions instead of raising them
+            return_exceptions: If True, return error info as dict instead of raising.
+                             Error dicts include: session, error, error_type, traceback
             **func_kwargs: Additional keyword arguments to pass to func
 
         Returns:
             List of results from applying func to each session
 
+        Raises:
+            SessionProcessingError: If a session fails and return_exceptions=False.
+                Contains session name, error type, and full traceback.
+
         Example:
+            >>> # Normal usage - raises on error
             >>> def analyze_session(session_name, obj, min_units=5):
             ...     obj._load_ephys(keep_good_only=True)
             ...     n_units = obj.analyzer.get_num_units()
@@ -133,7 +171,11 @@ class SessionManager:
             ...     return {'session': session_name, 'units': n_units}
             >>>
             >>> results = manager.map(analyze_session, n_jobs=8, min_units=10)
-            >>> results = [r for r in results if r is not None]  # Filter out None
+
+            >>> # Graceful error handling
+            >>> results = manager.map(analyze_session, n_jobs=8, return_exceptions=True)
+            >>> errors = [r for r in results if 'error' in r]
+            >>> successful = [r for r in results if 'error' not in r]
         """
         # Filter sessions if needed
         if filter_sessions:
@@ -151,10 +193,20 @@ class SessionManager:
                 result = func(session_name, obj)
                 return result
             except Exception as e:
+                # Get full traceback
+                tb_str = traceback.format_exc()
+
                 if return_exceptions:
-                    return {"session": session_name, "error": str(e)}
+                    # Return error info as dict for later analysis
+                    return {
+                        "session": session_name,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "traceback": tb_str,
+                    }
                 else:
-                    raise
+                    # Raise informative error with session context
+                    raise SessionProcessingError(session_name, e, tb_str) from e
 
         # Process sessions
         if n_jobs == 1:
