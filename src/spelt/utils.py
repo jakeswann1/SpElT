@@ -1,4 +1,6 @@
 # Various functions useful for analysis
+import re
+
 import numpy as np
 import pandas as pd
 import spikeinterface as si
@@ -18,11 +20,15 @@ def load_session(obj, lfp_sampling_rate):
     obj.load_spikes("good")
 
 
-def gs_to_df(url: str):
-    import pandas as pd
+def gs_to_df(url: str) -> pd.DataFrame:
+    # Replace /edit#gid= with /export?format=csv&gid= for any gid number
+    url = re.sub(r"/edit#gid=(\d+)", r"/export?format=csv&gid=\1", url)
 
-    url = url.replace("/edit#gid=", "/export?format=csv&gid=")
-    csv_export_url = url.replace("/edit?gid=0#gid=0", "/export?format=csv&gid=0")
+    # Replace /edit?gid=X#gid=X with /export?format=csv&gid=X for any gid number
+    csv_export_url = re.sub(
+        r"/edit\?gid=(\d+)#gid=\d+", r"/export?format=csv&gid=\1", url
+    )
+
     df = pd.read_csv(csv_export_url, on_bad_lines="skip")
     return df
 
@@ -262,3 +268,22 @@ def compute_extensions_lazy(analyzer: si.SortingAnalyzer, extension_list: list[s
         else:
             analyzer.compute(ext)
     return analyzer
+
+
+def get_subject_data(sheet_url: str, subject_id: str | None = None) -> pd.DataFrame:
+    """
+    Retrieve subject data from a Google Sheets URL.
+
+    Parameters:
+    sheet_url (str): The URL of the Google Sheets document.
+
+    Returns:
+    pd.DataFrame: A DataFrame containing subject data.
+    """
+    df = gs_to_df(sheet_url)
+    if subject_id is not None:
+        subject_data = df[df["ID"] == subject_id]
+    else:
+        subject_data = df
+
+    return subject_data
