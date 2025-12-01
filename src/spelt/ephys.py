@@ -696,8 +696,7 @@ class ephys:  # noqa: N801
             output_flag: If True, print processing information
             save_to_disk: If True, save the processed data to disk for future use
         """
-        from spelt.analysis.get_peak_frequencies import get_theta_frequencies
-        from spelt.analysis.get_signal_phase import get_signal_phase
+        from spelt.analysis.lfp import get_signal_phase, get_theta_frequencies
 
         if output_flag:
             print(f"Processing theta phase data for trial {trial_iterator}")
