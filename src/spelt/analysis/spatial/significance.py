@@ -1,8 +1,10 @@
 import numpy as np
 import pynapple as nap
-from .spatial_information import spatial_info
-from spelt.maps.rate_maps import make_rate_maps
 from joblib import Parallel, delayed
+
+from spelt.maps.rate_maps import make_rate_maps
+
+from .information import spatial_info
 
 
 def compute_shuffle(spike_times_real, pos_sample_times, pos_bin_idx, pos_sampling_rate):
@@ -31,7 +33,10 @@ def spatial_significance(
     pos_sample_times, pos_bin_idx, pos_sampling_rate, spike_times_real, n_shuffles=1000
 ):
     """
-    Calculate the significance of spatial information for a given cluster by shuffling spike times and recalculating spatial information.
+    Calculate significance of spatial information by shuffling spike times.
+
+    Tests spatial information significance for a cluster by shuffling spike times
+    and recalculating spatial information.
 
     Parameters
     ----------
@@ -84,11 +89,13 @@ def spatial_significance(
     mean_shuffled = bits_per_spike_shuffled.mean()
     std_shuffled = bits_per_spike_shuffled.std()
 
-    # Z-score calculation: difference between real and mean of shuffled, divided by std of shuffled
+    # Z-score calculation: difference between real and mean of shuffled,
+    # divided by std of shuffled
     bits_per_spike_z = ((bits_per_spike_real - mean_shuffled) / std_shuffled)[0]
 
-    # P-value calculation: proportion of shuffled values greater than the real value
-    # Note: This calculation assumes a one-tailed test, as we're only interested if the real value is significantly higher
+    # P-value calculation: proportion of shuffled values greater than real value
+    # Note: This assumes a one-tailed test, as we're only interested if the
+    # real value is significantly higher
     p_value = np.sum(bits_per_spike_shuffled >= bits_per_spike_real) / n_shuffles
 
     return p_value, bits_per_spike_z, bits_per_spike_shuffled

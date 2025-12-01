@@ -2,6 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pywt
+from joblib import Parallel, delayed
+from scipy.signal import welch
+from tqdm import tqdm
+
+from .filtering import bandpass_filter_lfp
 
 
 def complex_morlet_wavelet_transform(
@@ -358,7 +363,7 @@ def compute_power_by_cycle(
     channel_axis: int = -1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Compute power spectrum for each cycle in a given frequency band using vectorized operations.
+    Compute power spectrum for each cycle in a given frequency band.
 
     Parameters:
     -----------
@@ -412,3 +417,277 @@ def compute_power_by_cycle(
     cycle_powers = np.array([np.mean(power[mask], axis=0) for mask in cycle_masks])
 
     return cycle_powers, unique_cycles, frequencies
+
+
+def compute_band_power_single_channel(
+    lfp_channel, fs, freq_min, freq_max, nperseg=1024, method="integral"
+):
+    """
+    Compute power in a frequency band for a single LFP channel.
+
+    Parameters:
+    -----------
+    lfp_channel : np.ndarray
+        LFP data for one channel, shape (n_samples,)
+    fs : float
+        Sampling frequency in Hz
+    freq_min : float
+        Lower bound of frequency band in Hz
+    freq_max : float
+        Upper bound of frequency band in Hz
+    nperseg : int, optional
+        Length of each segment for Welch's method (default: 1024)
+    method : str, optional
+        Method to compute band power:
+        - 'integral': Integrate PSD over frequency band (default)
+        - 'mean': Mean PSD in frequency band
+        - 'peak': Peak PSD in frequency band
+
+    Returns:
+    --------
+    float
+        Band power value
+
+    Example:
+    --------
+    >>> # Compute ripple power for one channel
+    >>> power = compute_band_power_single_channel(
+    ...     lfp_data[:, 0], fs=1000, freq_min=150, freq_max=250
+    ... )
+    """
+    # Compute Power Spectral Density using Welch's method
+    f, pxx = welch(lfp_channel, fs=fs, nperseg=nperseg)
+
+    # Find indices in frequency band
+    band_mask = (f >= freq_min) & (f <= freq_max)
+
+    if not np.any(band_mask):
+        raise ValueError(
+            f"No frequencies found in band {freq_min}-{freq_max} Hz. "
+            f"Available range: {f.min()}-{f.max()} Hz"
+        )
+
+    # Compute band power based on method
+    if method == "integral":
+        band_power = np.trapz(pxx[band_mask], f[band_mask])
+    elif method == "mean":
+        band_power = np.mean(pxx[band_mask])
+    elif method == "peak":
+        band_power = np.max(pxx[band_mask])
+    else:
+        raise ValueError(
+            f"Unknown method '{method}'. Must be 'integral', 'mean', or 'peak'"
+        )
+
+    return band_power
+
+
+def compute_band_power(
+    lfp_data,
+    fs,
+    freq_min,
+    freq_max,
+    nperseg=1024,
+    method="integral",
+    n_jobs=1,
+    show_progress=False,
+):
+    """
+    Compute power in a frequency band for all channels in parallel.
+
+    This is a vectorized/parallelized version that efficiently processes
+    multiple LFP channels simultaneously.
+
+    Parameters:
+    -----------
+    lfp_data : np.ndarray
+        LFP data with channels in columns, shape (n_samples, n_channels)
+    fs : float
+        Sampling frequency in Hz
+    freq_min : float
+        Lower bound of frequency band in Hz
+    freq_max : float
+        Upper bound of frequency band in Hz
+    nperseg : int, optional
+        Length of each segment for Welch's method (default: 1024)
+    method : str, optional
+        Method to compute band power (default: 'integral')
+        Options: 'integral', 'mean', 'peak'
+    n_jobs : int, optional
+        Number of parallel jobs. -1 uses all cores (default: 1)
+    show_progress : bool, optional
+        Show progress bar (default: False)
+
+    Returns:
+    --------
+    np.ndarray
+        Band power for each channel, shape (n_channels,)
+
+    Example:
+    --------
+    >>> # Compute ripple power for all channels in parallel
+    >>> ripple_power = compute_band_power(
+    ...     lfp_data, fs=1000, freq_min=150, freq_max=250,
+    ...     n_jobs=-1, show_progress=True
+    ... )
+    >>>
+    >>> # Compute theta power
+    >>> theta_power = compute_band_power(
+    ...     lfp_data, fs=1000, freq_min=6, freq_max=12
+    ... )
+    """
+    # Ensure LFP is 2D
+    if lfp_data.ndim == 1:
+        lfp_data = lfp_data[:, np.newaxis]
+
+    n_channels = lfp_data.shape[1]
+
+    # Helper function for parallel processing
+    def process_channel(ch_idx):
+        return compute_band_power_single_channel(
+            lfp_data[:, ch_idx], fs, freq_min, freq_max, nperseg, method
+        )
+
+    # Process channels in parallel
+    if show_progress:
+        band_power = Parallel(n_jobs=n_jobs)(
+            delayed(process_channel)(ch_idx)
+            for ch_idx in tqdm(range(n_channels), desc="Computing band power")
+        )
+    else:
+        band_power = Parallel(n_jobs=n_jobs)(
+            delayed(process_channel)(ch_idx) for ch_idx in range(n_channels)
+        )
+
+    return np.array(band_power)
+
+
+def compute_band_power_from_ephys(
+    ephys_obj,
+    freq_min,
+    freq_max,
+    trial_idx=0,
+    apply_bandpass=True,
+    nperseg=1024,
+    method="integral",
+    n_jobs=1,
+    show_progress=False,
+):
+    """
+    Compute frequency band power directly from an ephys object's LFP data.
+
+    This is a convenience wrapper that loads LFP from an ephys object,
+    optionally applies bandpass filtering, and computes band power.
+
+    Parameters:
+    -----------
+    ephys_obj : ephys
+        Ephys object with LFP data loaded (call load_lfp() first if needed)
+    freq_min : float
+        Lower bound of frequency band in Hz
+    freq_max : float
+        Upper bound of frequency band in Hz
+    trial_idx : int, optional
+        Which trial to analyze (default: 0)
+    apply_bandpass : bool, optional
+        Whether to bandpass filter before computing power (default: True)
+        If False, assumes LFP is already filtered to desired band
+    nperseg : int, optional
+        Length of each segment for Welch's method (default: 1024)
+    method : str, optional
+        Method to compute band power: 'integral', 'mean', or 'peak'
+        (default: 'integral')
+    n_jobs : int, optional
+        Number of parallel jobs. -1 uses all cores (default: 1)
+    show_progress : bool, optional
+        Show progress bar (default: False)
+
+    Returns:
+    --------
+    dict
+        Dictionary containing:
+        - 'band_power': ndarray of shape (n_channels,) with power per channel
+        - 'channel_ids': list of channel IDs
+        - 'peak_channel': channel ID with maximum power
+        - 'peak_power': maximum power value
+        - 'peak_channel_idx': index of peak channel
+        - 'fs': sampling frequency used
+        - 'freq_min': lower frequency bound
+        - 'freq_max': upper frequency bound
+        - 'trial_idx': trial index analyzed
+
+    Example:
+    --------
+    >>> from spelt.ephys import ephys
+    >>> from spelt.analysis.lfp import compute_band_power_from_ephys
+    >>>
+    >>> obj = ephys(path=data_path, sheet_url=sheet_url)
+    >>> obj.load_lfp(trial_idx=0)
+    >>>
+    >>> # Compute ripple power (150-250 Hz)
+    >>> ripple_result = compute_band_power_from_ephys(
+    ...     obj, freq_min=150, freq_max=250, n_jobs=-1
+    ... )
+    >>> print(f"Peak ripple channel: {ripple_result['peak_channel']}")
+    >>> print(f"Peak ripple power: {ripple_result['peak_power']:.2e}")
+    >>>
+    >>> # Compute theta power (6-12 Hz)
+    >>> theta_result = compute_band_power_from_ephys(
+    ...     obj, freq_min=6, freq_max=12
+    ... )
+    """
+    # Check if LFP data is loaded
+    if not hasattr(ephys_obj, "lfp_data") or ephys_obj.lfp_data is None:
+        raise ValueError("LFP data not loaded. Call ephys_obj.load_lfp() first.")
+
+    # Get LFP data for specified trial
+    if trial_idx >= len(ephys_obj.lfp_data):
+        raise ValueError(
+            f"Trial index {trial_idx} out of range. "
+            f"Available trials: 0-{len(ephys_obj.lfp_data) - 1}"
+        )
+
+    lfp_trial = ephys_obj.lfp_data[trial_idx]
+    lfp_array = lfp_trial["lfp"]  # Shape: (n_samples, n_channels)
+    fs = lfp_trial["lfp_sample_rate"]
+
+    # Get channel IDs if available
+    if "channel_ids" in lfp_trial:
+        channel_ids = lfp_trial["channel_ids"]
+    else:
+        channel_ids = list(range(lfp_array.shape[1]))
+
+    # Apply bandpass filter if requested
+    if apply_bandpass:
+        lfp_filtered = bandpass_filter_lfp(lfp_array, fs, freq_min, freq_max)
+    else:
+        lfp_filtered = lfp_array
+
+    # Compute band power for all channels
+    band_power = compute_band_power(
+        lfp_filtered,
+        fs,
+        freq_min,
+        freq_max,
+        nperseg=nperseg,
+        method=method,
+        n_jobs=n_jobs,
+        show_progress=show_progress,
+    )
+
+    # Find peak channel
+    peak_idx = np.argmax(band_power)
+    peak_channel = channel_ids[peak_idx]
+    peak_power = band_power[peak_idx]
+
+    return {
+        "band_power": band_power,
+        "channel_ids": channel_ids,
+        "peak_channel": peak_channel,
+        "peak_power": peak_power,
+        "peak_channel_idx": peak_idx,
+        "fs": fs,
+        "freq_min": freq_min,
+        "freq_max": freq_max,
+        "trial_idx": trial_idx,
+    }

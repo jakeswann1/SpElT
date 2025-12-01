@@ -275,7 +275,7 @@ def process_arm_csd(
     freq_band_name,
     csd_path,
 ):
-    from spelt.analysis.get_traversal_data import (
+    from spelt.analysis.behavioral import (
         drop_extreme_cycles,
         get_data_for_traversals,
         get_traversal_cycles,

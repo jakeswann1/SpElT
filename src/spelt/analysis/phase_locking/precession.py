@@ -1,3 +1,4 @@
+# ruff: noqa: N806
 """
 Lifted from https://github.com/CINPLA/phase-precession
 For computing circular-linear correlation for phase precession
@@ -80,9 +81,6 @@ def corr_cc_uniform(a, b):
 
     aplusb = a + b
     aminusb = a - b
-
-    aplusb_bar = mean(aplusb)
-    aminusb_bar = mean(aminusb)
 
     R_aplusb = resultant_vector_length(aplusb)
     R_aminusb = resultant_vector_length(aminusb)
@@ -173,7 +171,8 @@ def cl_regression(x, phase, min_slope, max_slope):
     if not isinstance(max_slope, (float, int)):
         raise ValueError("The max_slope parameter must be a scalar")
 
-    assert min_slope < max_slope, "min_slope < max_slope"
+    if min_slope < max_slope:
+        raise ValueError("min_slope < max_slope")
 
     # We determine the value of the best `slope' using the MATLAB function fminbnd.
     # Please note that we have a minus sign in front of the

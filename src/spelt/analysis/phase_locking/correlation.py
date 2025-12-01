@@ -1,3 +1,5 @@
+# ruff: noqa: N806
+
 """
 Optimized drop-in replacement for cl_corr that uses binned circular means
 to avoid firing rate bias in phase precession analysis
@@ -104,15 +106,20 @@ def binned_cl_corr(
     - Efficient bootstrap sampling
 
     Args:
-        return_rmse: If True, returns RMSE as the 6th element (or 7th if return_bin_data=True)
+        return_rmse: If True, returns RMSE as the 6th element
+            (or 7th if return_bin_data=True)
 
     Returns:
         If return_rmse=False (default):
-            If return_bin_data=True: (corr_coeff, pval_or_ci, slope, phi0, R_val, bin_data_dict)
-            If return_bin_data=False: (corr_coeff, pval_or_ci, slope, phi0, R_val)
+            If return_bin_data=True:
+                (corr_coeff, pval_or_ci, slope, phi0, R_val, bin_data_dict)
+            If return_bin_data=False:
+                (corr_coeff, pval_or_ci, slope, phi0, R_val)
         If return_rmse=True:
-            If return_bin_data=True: (corr_coeff, pval_or_ci, slope, phi0, R_val, bin_data_dict, rmse)
-            If return_bin_data=False: (corr_coeff, pval_or_ci, slope, phi0, R_val, rmse)
+            If return_bin_data=True:
+                (corr_coeff, pval_or_ci, slope, phi0, R_val, bin_data_dict, rmse)
+            If return_bin_data=False:
+                (corr_coeff, pval_or_ci, slope, phi0, R_val, rmse)
     """
 
     # Input validation
@@ -207,8 +214,9 @@ def _find_best_phase_reference(x: np.ndarray, phase: np.ndarray) -> np.ndarray:
     """
     Try each bin as reference (phase = 0) and find which gives the best linear fit.
 
-    This systematically handles phase wrapping by testing all possible reference points
-    and choosing the one that produces the most linear relationship.
+    This systematically handles phase wrapping by testing all possible
+    reference points and choosing the one that produces the most linear
+    relationship.
 
     Handles the case where bin means are in [-π, π] range (from arctan2)
     but we need to work in [0, 2π] range for unwrapping.
@@ -217,7 +225,8 @@ def _find_best_phase_reference(x: np.ndarray, phase: np.ndarray) -> np.ndarray:
         return phase
 
     # Convert bin means from [-π, π] to [0, 2π] range for consistent unwrapping
-    # This is needed because circular mean calculation uses arctan2() which returns [-π, π]
+    # This is needed because circular mean calculation uses arctan2() which
+    # returns [-π, π]
     phase_0_to_2pi = phase.copy()  # Already in [0, 2π]
 
     best_r_squared = -1
@@ -263,7 +272,7 @@ def _find_best_phase_reference(x: np.ndarray, phase: np.ndarray) -> np.ndarray:
                         best_r_squared = r_squared
                         best_adjusted_phases = adjusted_phases.copy()
 
-        except Exception:
+        except Exception:  # noqa: S112
             # Skip this reference if it causes problems
             continue
 
@@ -283,7 +292,7 @@ def _optimized_cl_regression(
         # Fallback to standard unwrapping if reference method fails
         try:
             phase_unwrapped = np.unwrap(phase)
-        except:
+        except Exception:
             phase_unwrapped = phase
 
     # Use simple linear regression on the best-adjusted phases
@@ -377,7 +386,7 @@ def _fast_bootstrap_significance(
     # Pre-generate all bootstrap indices for shuffling phases
     rng = np.random.default_rng()
 
-    for i in range(n_iterations):
+    for _i in range(n_iterations):
         try:
             # Shuffle the original spike phases (not bin means)
             shuffled_indices = rng.permutation(n_spikes)
@@ -425,7 +434,7 @@ def _fast_bootstrap_significance(
                     null_slope = (sum_xy - (sum_x * sum_y) / n) / denominator
                     valid_null_slopes.append(null_slope)
 
-        except Exception:
+        except Exception:  # noqa: S112
             # Skip failed iterations
             continue
 
@@ -481,7 +490,7 @@ def _fast_bootstrap_ci(
             )
             if not np.isnan(slope):
                 slopes.append(slope)
-        except Exception:
+        except Exception:  # noqa: S112
             continue
 
     if len(slopes) < 100:

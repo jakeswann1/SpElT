@@ -44,10 +44,6 @@ packages = ["spelt"]
 "spelt.hello" = ["*.msg"]
 
 [tool.ruff]
-# Enable flake8-bugbear (`B`) rules.
-select = ["E", "F", "B", "I"]
-ignore = []
-
 # Same as Black.
 line-length = 88
 indent-width = 4
@@ -63,8 +59,9 @@ indent-style = "space"
 # Respect magic trailing commas.
 skip-magic-trailing-comma = true
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["spelt"]
+split-on-trailing-comma = false
 
 [tool.ruff.lint]
 # Enable additional rules

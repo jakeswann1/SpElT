@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.stats import pearsonr
 from scipy.interpolate import griddata
+from scipy.stats import pearsonr
 
 
 def interpolate_map(map, max_dim):
@@ -46,16 +46,20 @@ def pearson_corr(map1, map2):
 
 def spatial_correlation(map_list1, map_list2=None):
     """
-    Calculate the spatial correlation between 2D rate maps, interpolating them to a common size.
+    Calculate spatial correlation between 2D rate maps, interpolating to common size.
+
     The common size is determined as the maximum size among all maps.
 
     Parameters:
     - map_list1: A list of 2D numpy arrays representing rate maps.
-    - map_list2: (Optional) Another list of 2D numpy arrays representing rate maps.
+    - map_list2: (Optional) Another list of 2D numpy arrays representing
+                 rate maps.
 
     Returns:
-    - A matrix of Pearson correlation coefficients if only map_list1 is provided.
-    - An array of Pearson correlation coefficients for corresponding maps if map_list1 and map_list2 are provided.
+    - A matrix of Pearson correlation coefficients if only map_list1 is
+      provided.
+    - An array of Pearson correlation coefficients for corresponding maps if
+      map_list1 and map_list2 are provided.
     """
 
     # Determine the maximum dimensions among all maps

@@ -403,7 +403,9 @@ def plot_emd_analysis(
     #     signal[:, channel], fs, welch_nperseg
     # )
     # reconstructed = np.sum(imfs[:, :, channel], axis=0)
-    # freqs_welch_recon, psd_recon = calculate_welch_psd(reconstructed, fs, welch_nperseg)
+    # freqs_welch_recon, psd_recon = calculate_welch_psd(
+    #     reconstructed, fs, welch_nperseg
+    # )
 
     # mask_orig = (freqs_welch_orig >= freq_range[0]) & (
     #     freqs_welch_orig <= freq_range[1]

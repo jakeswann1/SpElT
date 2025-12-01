@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
-from scipy.signal import filtfilt, firwin, hilbert
+from scipy.signal import hilbert
+
+from .filtering import bandpass_filter_lfp
 
 
 def get_signal_phase(
@@ -105,25 +107,14 @@ def get_signal_phase(
         # Get filter parameters for this channel
         low_freq, high_freq = filter_ranges[c]
 
-        # Optimize filter design
-        filter_order = min(int(sampling_rate / 2), 1001)
-        if filter_order % 2 == 0:
-            filter_order += 1  # Ensure odd order for zero phase filtering
-
-        # Design bandpass filter for this channel
-        filter_taps = firwin(
-            filter_order,
-            [low_freq, high_freq],
-            pass_zero=False,
-            window="blackman",
+        # Filter LFP for this channel using the shared filtering function
+        filtered_lfp = bandpass_filter_lfp(
+            lfp[:, c],
             fs=sampling_rate,
+            freq_min=low_freq,
+            freq_max=high_freq,
+            filter_type="fir",
         )
-
-        # Calculate appropriate padding for filtfilt
-        pad_length = min(3 * (len(filter_taps) - 1), n_samples - 1, 1000)
-
-        # Filter LFP for this channel
-        filtered_lfp = filtfilt(filter_taps, 1, lfp[:, c], padlen=pad_length)
 
         # Hilbert transform
         analytic_signal = hilbert(filtered_lfp)
