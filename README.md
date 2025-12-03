@@ -2,8 +2,8 @@
 ![spelt logo med](https://github.com/jakeswann1/SpElT/assets/66915197/a9c365a9-fecb-42fa-aae5-62f2042b0c81)
 # Spelt - the Spatial Electrophysiology Toolbox
 ### Spelt is a python-based toolkit for analysis of co-recorded electrophysiological and behavioural data, based on [scaNpix](https://github.com/LaurenzMuessig/scaNpix), and using [SpikeInterface](https://github.com/SpikeInterface/spikeinterface) v0.101+
-### Currently this is implemented for loading, processing and analysing raw data from Axona systems, with Neuropixels 2 Open Ephys recordings as a WIP
-•	The package code requires Python 3.9, owing to several dependencies
+### Currently this is implemented for loading, processing and analysing raw data from Axona systems, and Neuropixels 2 Open Ephys recordings
+•	The package code requires Python 3.11+, for modern type hint support
 
 •	Development by [Jake Swann](https://github.com/jakeswann1/) @ Wills-Cacucci Lab, UCL
 
