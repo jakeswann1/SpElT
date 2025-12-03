@@ -893,6 +893,10 @@ class ephys:  # noqa: N801
 
             lfp_timestamps = recording.get_times(segment_index=trial_iterator)
 
+            # If no channels specified, get all channel IDs from recording
+            if channels is None:
+                channels = [str(ch) for ch in recording.get_channel_ids()]
+
             trial_lfp_data = {
                 "data": lfp_data,
                 "timestamps": lfp_timestamps,

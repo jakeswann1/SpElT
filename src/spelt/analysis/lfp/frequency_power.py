@@ -9,6 +9,55 @@ from tqdm import tqdm
 from .filtering import bandpass_filter_lfp
 
 
+def _auto_select_nperseg(freq_min, fs, n_samples):
+    """
+    Automatically select nperseg for Welch's method using the 4-cycle rule.
+
+    This ensures the frequency resolution captures approximately 4 cycles
+    of the lowest frequency for stable power estimates.
+
+    Parameters:
+    -----------
+    freq_min : float
+        Lower bound of frequency band in Hz
+    fs : float
+        Sampling frequency in Hz
+    n_samples : int
+        Number of samples in the signal
+
+    Returns:
+    --------
+    int
+        Optimal nperseg value, rounded to nearest power of 2 and
+        clamped to [256, 8192] and signal length
+
+    Notes:
+    ------
+    The 4-cycle rule states: nperseg = fs / (freq_min / 4)
+    This ensures the frequency resolution is ~1/4 of the lowest frequency,
+    capturing ~4 cycles minimum for stable spectral estimates.
+    """
+    # Use principled approach: aim for frequency resolution that's
+    # ~1/4 of the lowest frequency (captures ~4 cycles minimum)
+    # This ensures stable power estimates while maintaining efficiency
+    target_freq_resolution = freq_min / 4
+
+    # Calculate required nperseg for this resolution
+    # freq_resolution = fs / nperseg  =>  nperseg = fs / freq_resolution
+    nperseg_ideal = int(fs / target_freq_resolution)
+
+    # Round to nearest power of 2 for FFT efficiency
+    nperseg = 2 ** int(np.round(np.log2(nperseg_ideal)))
+
+    # Clamp to reasonable bounds:
+    # - Minimum 256 (avoids too-small windows)
+    # - Maximum 8192 (avoids excessive computation for very low freqs)
+    # - Must not exceed signal length
+    nperseg = max(256, min(nperseg, 8192, n_samples))
+
+    return nperseg
+
+
 def complex_morlet_wavelet_transform(
     signal: np.ndarray, frequencies: np.ndarray, fs: float
 ) -> np.ndarray:
@@ -487,7 +536,7 @@ def compute_band_power(
     fs,
     freq_min,
     freq_max,
-    nperseg=1024,
+    nperseg=None,
     method="integral",
     n_jobs=1,
     show_progress=False,
@@ -508,8 +557,11 @@ def compute_band_power(
         Lower bound of frequency band in Hz
     freq_max : float
         Upper bound of frequency band in Hz
-    nperseg : int, optional
-        Length of each segment for Welch's method (default: 1024)
+    nperseg : int or None, optional
+        Length of each segment for Welch's method. If None (default),
+        automatically chooses based on the principle of capturing ~4 cycles
+        of the lowest frequency: nperseg = fs / (freq_min / 4).
+        Result is rounded to nearest power of 2 and clamped to [256, 8192].
     method : str, optional
         Method to compute band power (default: 'integral')
         Options: 'integral', 'mean', 'peak'
@@ -525,22 +577,31 @@ def compute_band_power(
 
     Example:
     --------
-    >>> # Compute ripple power for all channels in parallel
+    >>> # Compute ripple power (auto-selects nperseg=512)
     >>> ripple_power = compute_band_power(
     ...     lfp_data, fs=1000, freq_min=150, freq_max=250,
     ...     n_jobs=-1, show_progress=True
     ... )
     >>>
-    >>> # Compute theta power
+    >>> # Compute theta power (auto-selects nperseg=2048)
     >>> theta_power = compute_band_power(
     ...     lfp_data, fs=1000, freq_min=6, freq_max=12
+    ... )
+    >>>
+    >>> # Override with custom nperseg if needed
+    >>> gamma_power = compute_band_power(
+    ...     lfp_data, fs=1000, freq_min=30, freq_max=80, nperseg=2048
     ... )
     """
     # Ensure LFP is 2D
     if lfp_data.ndim == 1:
         lfp_data = lfp_data[:, np.newaxis]
 
-    n_channels = lfp_data.shape[1]
+    n_samples, n_channels = lfp_data.shape
+
+    # Auto-select nperseg if not provided
+    if nperseg is None:
+        nperseg = _auto_select_nperseg(freq_min, fs, n_samples)
 
     # Helper function for parallel processing
     def process_channel(ch_idx):
@@ -568,7 +629,7 @@ def compute_band_power_from_ephys(
     freq_max,
     trial_idx=0,
     apply_bandpass=True,
-    nperseg=1024,
+    nperseg=None,
     method="integral",
     n_jobs=1,
     show_progress=False,
@@ -592,8 +653,11 @@ def compute_band_power_from_ephys(
     apply_bandpass : bool, optional
         Whether to bandpass filter before computing power (default: True)
         If False, assumes LFP is already filtered to desired band
-    nperseg : int, optional
-        Length of each segment for Welch's method (default: 1024)
+    nperseg : int or None, optional
+        Length of each segment for Welch's method. If None (default),
+        automatically chooses based on the principle of capturing ~4 cycles
+        of the lowest frequency: nperseg = fs / (freq_min / 4).
+        Result is rounded to nearest power of 2 and clamped to [256, 8192].
     method : str, optional
         Method to compute band power: 'integral', 'mean', or 'peak'
         (default: 'integral')
@@ -624,16 +688,21 @@ def compute_band_power_from_ephys(
     >>> obj = ephys(path=data_path, sheet_url=sheet_url)
     >>> obj.load_lfp(trial_idx=0)
     >>>
-    >>> # Compute ripple power (150-250 Hz)
+    >>> # Compute ripple power (auto-selects nperseg=512)
     >>> ripple_result = compute_band_power_from_ephys(
     ...     obj, freq_min=150, freq_max=250, n_jobs=-1
     ... )
     >>> print(f"Peak ripple channel: {ripple_result['peak_channel']}")
     >>> print(f"Peak ripple power: {ripple_result['peak_power']:.2e}")
     >>>
-    >>> # Compute theta power (6-12 Hz)
+    >>> # Compute theta power (auto-selects nperseg=2048)
     >>> theta_result = compute_band_power_from_ephys(
     ...     obj, freq_min=6, freq_max=12
+    ... )
+    >>>
+    >>> # Override with custom nperseg if needed
+    >>> gamma_result = compute_band_power_from_ephys(
+    ...     obj, freq_min=30, freq_max=80, nperseg=1024
     ... )
     """
     # Check if LFP data is loaded
@@ -648,13 +717,63 @@ def compute_band_power_from_ephys(
         )
 
     lfp_trial = ephys_obj.lfp_data[trial_idx]
-    lfp_array = lfp_trial["lfp"]  # Shape: (n_samples, n_channels)
-    fs = lfp_trial["lfp_sample_rate"]
+
+    # Get LFP data array
+    # Standard ephys object structure uses "data" key
+    if isinstance(lfp_trial, dict):
+        if "data" in lfp_trial:
+            lfp_array = lfp_trial["data"]
+        else:
+            raise KeyError(
+                f"Could not find LFP data in trial {trial_idx}. "
+                f"Expected 'data' key. Available keys: {list(lfp_trial.keys())}"
+            )
+    elif isinstance(lfp_trial, np.ndarray):
+        # Direct array format
+        lfp_array = lfp_trial
+    else:
+        raise ValueError(
+            f"Unexpected lfp_trial format: {type(lfp_trial)}. "
+            "Expected dict with 'data' key or numpy array."
+        )
+
+    # Get sampling rate
+    # Standard ephys object structure uses "sampling_rate" key
+    if isinstance(lfp_trial, dict):
+        if "sampling_rate" in lfp_trial:
+            fs = lfp_trial["sampling_rate"]
+        else:
+            raise KeyError(
+                f"Could not find sampling rate in trial {trial_idx}. "
+                f"Expected 'sampling_rate' key. "
+                f"Available keys: {list(lfp_trial.keys())}"
+            )
+    else:
+        # If lfp_trial is just an array, get fs from ephys object
+        if hasattr(ephys_obj, "lfp_sample_rate"):
+            fs = ephys_obj.lfp_sample_rate
+        elif hasattr(ephys_obj, "sampling_rate"):
+            fs = ephys_obj.sampling_rate
+        else:
+            raise ValueError(
+                "Could not determine sampling rate. "
+                "lfp_trial is not a dict and ephys_obj has no "
+                "lfp_sample_rate or sampling_rate attribute."
+            )
+
+    # Auto-select nperseg if not provided
+    if nperseg is None:
+        nperseg = _auto_select_nperseg(freq_min, fs, lfp_array.shape[0])
 
     # Get channel IDs if available
-    if "channel_ids" in lfp_trial:
-        channel_ids = lfp_trial["channel_ids"]
+    # Standard ephys object structure uses "channels" key
+    if isinstance(lfp_trial, dict) and "channels" in lfp_trial:
+        channel_ids = lfp_trial["channels"]
+        # Handle legacy data where channels was stored as None
+        if channel_ids is None:
+            channel_ids = list(range(lfp_array.shape[1]))
     else:
+        # Fallback: generate sequential IDs
         channel_ids = list(range(lfp_array.shape[1]))
 
     # Apply bandpass filter if requested
