@@ -40,6 +40,7 @@ def find_all_sessions(
     probe: str | list[str] | None = None,
     animal: str | list[str] | None = None,
     area: str | list[str] | None = None,
+    date: str | list[str] | None = None,
 ) -> dict[str, str]:
     """
     Function to find all sessions and session paths from Recording Master Spreadsheet
@@ -51,6 +52,7 @@ def find_all_sessions(
      - probe: Single probe type or list of probe types to filter by
      - animal: Single animal or list of animals to filter by
      - area: Single area or list of areas to filter by
+     - date: Single date (YYYY-MM-DD) or list of dates to filter by
 
     Returns:
      - Dictionary mapping session names to their full paths
@@ -78,6 +80,12 @@ def find_all_sessions(
             sheet_inc = sheet_inc[sheet_inc["Areas"] == area]
         else:
             sheet_inc = sheet_inc[sheet_inc["Areas"].isin(area)]
+
+    if date is not None:
+        if isinstance(date, str):
+            sheet_inc = sheet_inc[sheet_inc["Date"] == date]
+        else:
+            sheet_inc = sheet_inc[sheet_inc["Date"].isin(date)]
 
     session_list = np.unique(sheet_inc["Session"].to_list())
     session_dict = {}
@@ -143,6 +151,7 @@ def load_sessions_from_config(
         probe=filters["probe"],
         animal=filters["animal"],
         area=filters["area"],
+        date=filters.get("date", None),
     )
 
 

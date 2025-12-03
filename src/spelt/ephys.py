@@ -950,7 +950,7 @@ class ephys:  # noqa: N801
             save_to_disk: If True, save the loaded data to disk for future use.
         """
         path = self.recording_path / self.trial_list[trial_iterator]
-        self.log_loading_info(path, "ttl", output_flag)
+        self.log_loading_info(path, "TTL", output_flag)
 
         try:
             ttl_times = {

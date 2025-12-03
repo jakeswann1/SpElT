@@ -1,23 +1,34 @@
 import numpy as np
+from numpy.typing import NDArray
 
 
-def spatial_info(rate_maps, pos_map):
+def spatial_info(
+    rate_maps: dict[int, NDArray] | list[NDArray] | NDArray,
+    pos_map: dict[int, NDArray] | list[NDArray] | NDArray,
+) -> tuple[dict[int, float] | NDArray, dict[int, float] | NDArray]:
     """
     Compute spatial information (Skaggs information) of place fields for 2D rate maps,
     accommodating for either a single shared position map or individual position maps
     for each rate map.
 
-    Parameters:
-    rate_maps (dict, list, or ndarray): A dictionary with cell IDs as keys and 2D rate
-        maps as values, or a list or 3D array of 2D rate maps. Each rate map represents
-        the firing rate of a neuron at different locations in a 2D space.
-    pos_map (dict, list, ndarray, or 2D ndarray): A single 2D position map to be applied
-        to each rate map, or a structure (dict, list, 3D ndarray) with a position map
-        for each rate map.
+    Parameters
+    ----------
+    rate_maps : dict, list, or ndarray
+        A dictionary with cell IDs as keys and 2D rate maps as values, or a list or
+        3D array of 2D rate maps. Each rate map represents the firing rate of a neuron
+        at different locations in a 2D space.
+    pos_map : dict, list, ndarray, or 2D ndarray
+        A single 2D position map to be applied to each rate map, or a structure
+        (dict, list, 3D ndarray) with a position map for each rate map.
 
-    Returns:
-    bits_per_spike (dict or ndarray): The spatial information per spike, in bits.
-    bits_per_sec (dict or ndarray): The spatial information per second, in bits.
+    Returns
+    -------
+    bits_per_spike : dict or ndarray
+        The spatial information per spike, in bits. Returns dict if rate_maps is dict,
+        otherwise returns ndarray.
+    bits_per_sec : dict or ndarray
+        The spatial information per second, in bits. Returns dict if rate_maps is dict,
+        otherwise returns ndarray.
     """
     is_dict_rate_maps = isinstance(rate_maps, dict)
     is_dict_pos_map = isinstance(pos_map, dict)
