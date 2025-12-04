@@ -96,7 +96,13 @@ def spatial_info(
                 for i in range(rate_maps_array.shape[0])
             ]
         )
-    bits_per_spike_array = bits_per_sec_array / mean_rates
+    # Handle division by zero: set bits_per_spike to NaN where mean_rate is 0 or NaN
+    with np.errstate(divide="ignore", invalid="ignore"):
+        bits_per_spike_array = np.where(
+            (mean_rates == 0) | np.isnan(mean_rates),
+            np.nan,
+            bits_per_sec_array / mean_rates,
+        )
 
     # Prepare output format to match input format
     if is_dict_rate_maps:

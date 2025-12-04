@@ -114,8 +114,14 @@ def make_rate_maps(
 
         if max_rates is True:
             # Calculate max and mean firing rates
-            max_rates_dict[cluster] = np.nanmax(rate_maps_dict[cluster])
-            mean_rates_dict[cluster] = np.nanmean(rate_maps_dict[cluster])
+            # Handle cases where rate map is all NaN
+            rate_map = rate_maps_dict[cluster]
+            if np.all(np.isnan(rate_map)):
+                max_rates_dict[cluster] = np.nan
+                mean_rates_dict[cluster] = np.nan
+            else:
+                max_rates_dict[cluster] = np.nanmax(rate_map)
+                mean_rates_dict[cluster] = np.nanmean(rate_map)
 
     # Set pos map to NaN where occupancy is 0
     pos_map[pos_map == 0] = np.nan
@@ -457,7 +463,9 @@ def bin_pos_data_dlc(
     return pos_bin_idx, pos_sample_times, pos_sampling_rate
 
 
-def make_rate_maps_from_obj(obj: ephys, bin_size=2.5):
+def make_rate_maps_from_obj(
+    obj: ephys, bin_size: float = 2.5, trial_list: list[int] = None
+):
     rate_maps = {}
     pos_map = {}
     max_rates = {}
@@ -467,15 +475,18 @@ def make_rate_maps_from_obj(obj: ephys, bin_size=2.5):
     pos_sample_times = {}
     pos_sampling_rate = {}
 
+    if trial_list is None:
+        trial_list = obj.trial_iterators
+
     if obj.unit_spikes is None:
         spike_data = obj.load_single_unit_spike_trains()
     else:
         spike_data = obj.unit_spikes
 
-    obj.load_pos(reload_flag=False)
+    obj.load_pos(trial_list=trial_list, reload_flag=False, output_flag=False)
 
     # Make rate maps for all trials in an ephys object
-    for trial, _ in enumerate(obj.trial_iterators):
+    for trial in trial_list:
         current_trial_spikes = spike_data[trial]
 
         # Filter spikes for speed
