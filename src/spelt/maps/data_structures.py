@@ -1,6 +1,6 @@
 import numpy as np
 
-from spelt.analysis.spatial_significance import spatial_significance
+from spelt.analysis.spatial import spatial_significance
 
 
 class TrialData:
