@@ -22,8 +22,9 @@ def compute_shuffle(spike_times_real, pos_sample_times, pos_bin_idx, pos_samplin
     )
 
     # Calculate spatial information from rate and pos maps
+    # Wrap single rate map in a list for spatial_info compatibility
     bits_per_spike_shuffled, bits_per_sec_shuffled = spatial_info(
-        rate_map_shuffled, pos_map
+        [rate_map_shuffled], [pos_map]
     )
 
     return bits_per_spike_shuffled, bits_per_sec_shuffled
@@ -68,7 +69,10 @@ def spatial_significance(
         pos_sampling_rate,
         max_rates=False,
     )
-    bits_per_spike_real, bits_per_sec_real = spatial_info(rate_maps_real, pos_map_real)
+    # Wrap single rate map in a list for spatial_info compatibility
+    bits_per_spike_real, bits_per_sec_real = spatial_info(
+        [rate_maps_real], [pos_map_real]
+    )
 
     spike_times_real = nap.Ts(t=spike_times_real, time_units="s")  # Pynapple object
 
