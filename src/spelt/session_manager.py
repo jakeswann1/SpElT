@@ -6,6 +6,7 @@ enabling parallel processing and eliminating repetitive for-loop code.
 """
 
 import traceback
+import warnings
 from functools import partial
 from typing import Any, Callable
 
@@ -15,6 +16,11 @@ from tqdm.auto import tqdm
 
 from .ephys import ephys
 from .utils import load_sessions_from_config
+
+warnings.filterwarnings("ignore")
+warnings.filterwarnings(
+    "ignore", message="Versions are not the same.*", category=UserWarning
+)
 
 
 class SessionProcessingError(Exception):
