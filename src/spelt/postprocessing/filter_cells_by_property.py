@@ -5,6 +5,8 @@ import pandas as pd
 import spikeinterface as si
 import spikeinterface.postprocessing as spost
 
+from spelt.postprocessing.burst_index_and_autocorrelograms import compute_first_moment
+
 
 def filter_cells_by_property(
     analyzer: si.SortingAnalyzer,
@@ -12,117 +14,151 @@ def filter_cells_by_property(
     fr_range: tuple[float, float] | None = None,
     spike_width_range_us: tuple[float, float] | None = None,
     burst_params: tuple[float, float, float] | None = None,
-) -> tuple[Any, list]:
+    return_dataframe: bool = True,
+) -> tuple[Any, list] | tuple[Any, list, pd.DataFrame]:
     """
     Filter cells based on various properties and return the filtered analyzer object.
 
     Parameters:
     -----------
-    analyzer : Any
+    analyzer : si.SortingAnalyzer
         The analyzer object with sorting data
-    depth_range : Optional[Tuple[float, float]], optional
+    depth_range : tuple[float, float] | None, optional
         Range of depth in micrometers as (min, max)
-    fr_range : Optional[Tuple[float, float]], optional
+    fr_range : tuple[float, float] | None, optional
         Range of firing rate in Hz as (min, max)
-    spike_width_range_us : Optional[Tuple[float, float]], optional
+    spike_width_range_us : tuple[float, float] | None, optional
         Range of spike width in microseconds as (min, max)
-    burst_params : Optional[Tuple[float, float, float]], optional
+    burst_params : tuple[float, float, float] | None, optional
         Bursting parameters as (window_ms, bin_ms, threshold_ms)
-    include_spike_width : bool, optional
-        Whether to include spike width filtering (default: True)
+    return_dataframe : bool, optional
+        Whether to return a DataFrame with all metrics (default: True)
 
     Returns:
     --------
-    analyzer : Any
+    analyzer : si.SortingAnalyzer
         The analyzer object with filtered units selected
-    units_to_keep : List
+    units_to_keep : list
         List of unit IDs that were kept after filtering
+    metrics_df : pd.DataFrame (only if return_dataframe=True)
+        DataFrame with columns:
+        - unit_id: Unit identifier
+        - depth: Recording depth (um)
+        - firing_rate: Firing rate (Hz)
+        - spike_width_us: Spike width in microseconds
+        - burst_index: First moment of autocorrelogram (ms)
+        - passed_filter: Boolean indicating if unit passed all filters
     """
     sorting: si.BaseSorting = analyzer.sorting
+
     # Get all unit IDs
     all_units = sorting.get_unit_ids()
 
-    # Apply depth filter if specified
-    if depth_range is not None:
+    # Initialize metrics collection
+    metrics_data = []
+
+    # Get depth property
+    try:
         depths = sorting.get_property("depth")
-        depth_mask = (depths >= depth_range[0]) & (depths <= depth_range[1])
-    else:
-        depth_mask = np.ones_like(all_units, dtype=bool)
+    except Exception:
+        depths = np.full(len(all_units), np.nan)
 
-    # Apply firing rate filter if specified
-    if fr_range is not None:
-        fr = sorting.get_property("fr")
-        fr_mask = (fr >= fr_range[0]) & (fr <= fr_range[1])
-    else:
-        fr_mask = np.ones_like(all_units, dtype=bool)
+    # Get firing rate property
+    try:
+        frs = sorting.get_property("fr")
+    except Exception:
+        frs = np.full(len(all_units), np.nan)
 
-    # Combine masks
-    mask = depth_mask & fr_mask
-    units_to_keep = sorting.get_unit_ids()[mask]
-
-    # Update analyzer with current filter
-    analyzer.select_units(units_to_keep)
-
-    # Apply spike width filter if specified and if any units remain
-    if spike_width_range_us is not None and len(units_to_keep) > 0:
-        # Calculate spike widths
+    # Calculate spike widths for ALL units
+    try:
         widths_df: pd.DataFrame = spost.compute_template_metrics(
             analyzer,
             metric_names=["peak_to_valley"],
             metrics_kwargs={"peak_relative_threshold": 0, "peak_width_ms": 0},
         )
+        spike_widths_s = widths_df["peak_to_valley"]
+    except Exception:
+        spike_widths_s = pd.Series(np.nan, index=all_units)
 
-        # Filter by spike width range - convert microseconds to seconds for comparison
-        min_width_s = spike_width_range_us[0] / 1e6
-        max_width_s = spike_width_range_us[1] / 1e6
-        units_to_keep = (
-            widths_df[
-                (widths_df["peak_to_valley"] >= min_width_s)
-                & (widths_df["peak_to_valley"] <= max_width_s)
-            ]
-            .index.astype(int)
-            .tolist()
-        )
-        analyzer.select_units(units_to_keep)
-
-    # Apply burst filter if specified and if any units remain
-    if burst_params is not None and len(units_to_keep) > 0:
+    # Calculate burst indices for ALL units if burst_params specified
+    burst_indices = {}
+    if burst_params is not None:
         window_ms, bin_ms, threshold_ms = burst_params
-        first_moment_passing = []
 
         # Calculate autocorrelograms
         correlograms, bin_edges = spost.compute_correlograms(
             analyzer, window_ms=window_ms, bin_ms=bin_ms
         )
 
-        # Calculate bin centers
-        bins = (bin_edges[:-1] + bin_edges[1:]) / 2
-        middle_index = len(bins) // 2
-        positive_bins = bins[middle_index:]
+        # Calculate bin centers (in seconds)
+        # Will be converted to ms in compute_first_moment
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-        for i, unit in enumerate(units_to_keep):
-            # Get positive part of autocorrelogram (after 0 ms)
-            positive_autocorrelogram = correlograms[i, i, middle_index:]
+        for i, unit in enumerate(all_units):
+            # Get autocorrelogram counts for this unit
+            counts = correlograms[i, i, :]
 
-            # Skip if no spikes in positive bins
-            if np.sum(positive_autocorrelogram) == 0:
-                continue
+            # Compute first moment using shared function
+            first_moment = compute_first_moment(bin_centers, counts)
+            burst_indices[unit] = first_moment
 
-            # Calculate the weighted sum of positive bin centers
-            weighted_sum = np.sum(positive_bins * positive_autocorrelogram)
+    # Build metrics data for each unit
+    for i, unit in enumerate(all_units):
+        depth = depths[i] if i < len(depths) else np.nan
+        fr = frs[i] if i < len(frs) else np.nan
+        spike_width_us = (
+            spike_widths_s.loc[unit] * 1e6 if unit in spike_widths_s.index else np.nan
+        )
+        burst_index = (
+            burst_indices.get(unit, np.nan) if burst_params is not None else np.nan
+        )
 
-            # Calculate the total count in positive bins
-            total_positive_count = np.sum(positive_autocorrelogram)
+        # Check if unit passes all filters
+        passed = True
 
-            # Calculate the first moment (mean) of the positive parts
-            first_moment = weighted_sum / total_positive_count
+        # Depth filter
+        if depth_range is not None and not np.isnan(depth):
+            if not (depth_range[0] <= depth <= depth_range[1]):
+                passed = False
 
-            # Keep units with first moment below threshold
-            if first_moment < threshold_ms:
-                first_moment_passing.append(unit)
+        # Firing rate filter
+        if fr_range is not None and not np.isnan(fr):
+            if not (fr_range[0] <= fr <= fr_range[1]):
+                passed = False
 
-        # Update units to keep
-        units_to_keep = first_moment_passing
-        analyzer.select_units(units_to_keep)
+        # Spike width filter
+        if spike_width_range_us is not None and not np.isnan(spike_width_us):
+            if not (
+                spike_width_range_us[0] <= spike_width_us <= spike_width_range_us[1]
+            ):
+                passed = False
 
-    return analyzer, units_to_keep
+        # Burst index filter
+        if burst_params is not None and not np.isnan(burst_index):
+            if burst_index >= threshold_ms:
+                passed = False
+
+        metrics_data.append(
+            {
+                "unit_id": unit,
+                "depth": depth,
+                "firing_rate": fr,
+                "spike_width_us": spike_width_us,
+                "burst_index": burst_index,
+                "passed_filter": passed,
+            }
+        )
+
+    # Create DataFrame
+    metrics_df = pd.DataFrame(metrics_data)
+
+    # Get units that passed filter
+    units_to_keep = metrics_df[metrics_df["passed_filter"]]["unit_id"].tolist()
+
+    # Update analyzer with filtered units
+    analyzer.select_units(units_to_keep)
+
+    if return_dataframe:
+        return analyzer, units_to_keep, metrics_df
+    else:
+        return analyzer, units_to_keep
