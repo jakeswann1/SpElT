@@ -256,7 +256,12 @@ def _build_session_title(
         and cluster_id in spatial_significance_dict[session_key]
     ):
         p_value = spatial_significance_dict[session_key][cluster_id]
-        title_parts.append(f"P = {p_value}")
+        # round to 3 d.p. or <0.001
+        if p_value < 0.001:
+            title_parts.append("P < 0.001")
+        else:
+            p_value = round(p_value, 3)
+            title_parts.append(f"P = {p_value}")
 
     return ". ".join(title_parts)
 

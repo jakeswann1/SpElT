@@ -100,6 +100,9 @@ def spatial_significance(
     # P-value calculation: proportion of shuffled values greater than real value
     # Note: This assumes a one-tailed test, as we're only interested if the
     # real value is significantly higher
-    p_value = np.sum(bits_per_spike_shuffled >= bits_per_spike_real) / n_shuffles
+    # Adding 1 to numerator and denominator prevents p=0
+    p_value = (np.sum(bits_per_spike_shuffled > bits_per_spike_real) + 1) / (
+        n_shuffles + 1
+    )
 
     return p_value, bits_per_spike_z, bits_per_spike_shuffled
