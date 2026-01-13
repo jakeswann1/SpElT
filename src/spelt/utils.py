@@ -333,12 +333,18 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
         - 'date': recording date (if successful)
         - 'n_cells': total number of cells (if successful)
         - 'n_place_cells': number of place cells (if successful)
-        - 'cell_data': list of dicts, one per cell with keys:
+        - 'cell_data': list of dicts, one per cell (averaged across trials) with keys:
             - 'cluster_id': cluster/unit ID
             - 'mean_spatial_info': mean spatial information across trials
             - 'std_spatial_info': std of spatial information across trials
             - 'n_trials': number of trials
             - 'mean_p_value': mean p-value across trials
+            - 'is_place_cell': boolean indicating if classified as place cell
+        - 'trial_data': list of dicts, one per trial per cell with keys:
+            - 'cluster_id': cluster/unit ID
+            - 'trial_name': trial identifier
+            - 'spatial_info': spatial information for this specific trial
+            - 'p_value': p-value for this specific trial
             - 'is_place_cell': boolean indicating if classified as place cell
         - 'message': error or skip message (if not successful)
         - 'error', 'traceback': error details (if status is 'error')
@@ -382,11 +388,16 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
         spatial_sig_dict = np.load(spatial_sig_path, allow_pickle=True).item()
         place_cells = np.load(place_cells_path, allow_pickle=True)
 
-        # Extract data for each cell
+        # Extract data for each cell (both trial-level and averaged)
         cell_data = []
+        trial_data = []
+
         for cluster_id in spatial_info_dict.keys():
-            # Get spatial info across all trials (take mean)
-            si_values = list(spatial_info_dict[cluster_id].values())
+            # Get spatial info across all trials
+            si_dict = spatial_info_dict[cluster_id]
+            si_values = list(si_dict.values())
+            trial_names = list(si_dict.keys())
+
             mean_si = np.mean(si_values)
             std_si = np.std(si_values)
 
@@ -398,6 +409,7 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
             # Check if place cell
             is_place_cell = cluster_id in place_cells
 
+            # Store cell-level data (averaged across trials)
             cell_data.append(
                 {
                     "cluster_id": cluster_id,
@@ -409,6 +421,19 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
                 }
             )
 
+            # Store trial-level data (individual trials)
+            for trial_name, si_value in zip(trial_names, si_values):
+                p_value = p_values_dict.get(trial_name, np.nan)
+                trial_data.append(
+                    {
+                        "cluster_id": cluster_id,
+                        "trial_name": trial_name,
+                        "spatial_info": si_value,
+                        "p_value": p_value,
+                        "is_place_cell": is_place_cell,
+                    }
+                )
+
         return {
             "session": session_name,
             "status": "success",
@@ -418,6 +443,7 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
             "n_cells": len(cell_data),
             "n_place_cells": int(np.sum([c["is_place_cell"] for c in cell_data])),
             "cell_data": cell_data,
+            "trial_data": trial_data,
         }
 
     except Exception as e:

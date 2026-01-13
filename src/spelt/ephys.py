@@ -264,6 +264,52 @@ class ephys:  # noqa: N801
 
         return unit_spikes
 
+    def load_pyramidal_cell_ids(self):
+        """
+        Load pyramidal cell IDs from clusters_inc.npy file.
+
+        Returns the cluster IDs that passed pyramidal cell filtering criteria:
+        - Mean FR < 10 Hz
+        - Mean spike width > 500us
+        - Burst index < 25ms
+
+        Returns:
+        --------
+        np.ndarray : Array of cluster IDs identified as pyramidal cells
+                     Returns empty array if file not found
+        """
+        clusters_inc_file = self.recording_path / "clusters_inc.npy"
+
+        if not clusters_inc_file.exists():
+            print(f"Warning: clusters_inc.npy not found at {clusters_inc_file}")
+            print("Run preprocessing/3. Pyramidal Cell Selection.ipynb first")
+            return np.array([])
+
+        return np.load(clusters_inc_file, allow_pickle=True)
+
+    def load_place_cell_ids(self):
+        """
+        Load place cell IDs from place_cells.npy file.
+
+        Returns the cluster IDs that showed significant spatial selectivity based on:
+        - Spatial information (bits/spike)
+        - Statistical testing with population shuffles
+        - Multiple comparison correction
+
+        Returns:
+        --------
+        np.ndarray : Array of cluster IDs identified as place cells
+                     Returns empty array if file not found
+        """
+        place_cells_file = self.recording_path / "place_cells.npy"
+
+        if not place_cells_file.exists():
+            print(f"Warning: place_cells.npy not found at {place_cells_file}")
+            print("Run preprocessing/4. Place Cell Plotting.ipynb first")
+            return np.array([])
+
+        return np.load(place_cells_file, allow_pickle=True)
+
     def normalize_trial_list(
         self, trial_list: int | list[int] | None, data_type: str = "position"
     ) -> list[int]:

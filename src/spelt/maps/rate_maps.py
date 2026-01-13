@@ -314,6 +314,100 @@ def speed_filter_spikes(
     return filtered_spikes
 
 
+def speed_filter_spikes_from_obj(
+    obj,
+    trial_list: int | list[int] | None = None,
+    unit_ids: list | None = None,
+    speed_lower_bound: float = 2.5,
+    speed_upper_bound: float = 400.0,
+) -> dict:
+    """
+    Filter spike times by speed directly from an ephys object.
+
+    This is a convenience wrapper around speed_filter_spikes() that handles
+    data extraction from the ephys object. Processes all trials and units efficiently.
+
+    Parameters:
+    -----------
+    obj : ephys
+        ephys object with loaded position and spike data
+    trial_list : int, list[int], or None
+        Trial index/indices to process. If None, processes all trials
+    unit_ids : list or None
+        Unit IDs to filter. If None, uses all available units
+    speed_lower_bound : float
+        Minimum speed threshold (cm/s). Default: 2.5
+    speed_upper_bound : float
+        Maximum speed threshold (cm/s). Default: 400.0
+
+    Returns:
+    --------
+    dict : {trial_idx: {unit_id: filtered_spike_times}}
+        Nested dictionary with filtered spike times per trial per unit
+
+    Example:
+    --------
+    >>> # Filter spikes for all trials at once
+    >>> filtered_spikes = speed_filter_spikes_from_obj(
+    ...     obj,
+    ...     speed_lower_bound=10,
+    ...     speed_upper_bound=400
+    ... )
+    >>> # Access filtered spikes for trial 0, unit 42
+    >>> spikes = filtered_spikes[0][42]
+
+    Notes:
+    ------
+    - Requires obj.pos_data to be loaded (run obj.load_pos() first)
+    - Loads spike data automatically if not already loaded
+    - Much more efficient than calling speed_filter_spikes() per cluster
+    """
+    # Normalize trial list
+    if isinstance(trial_list, int):
+        trial_list = [trial_list]
+    elif trial_list is None:
+        trial_list = obj.trial_iterators
+
+    # Load spike data if needed
+    if not hasattr(obj, "unit_spikes") or obj.unit_spikes is None:
+        unit_spikes = obj.load_single_unit_spike_trains(unit_ids, sparse=False)
+    else:
+        unit_spikes = obj.unit_spikes
+        # Filter to requested units if specified
+        if unit_ids is not None:
+            unit_spikes = {
+                trial: {
+                    uid: spikes
+                    for uid, spikes in trial_spikes.items()
+                    if uid in unit_ids
+                }
+                for trial, trial_spikes in unit_spikes.items()
+            }
+
+    # Check that position data is loaded
+    if obj.pos_data is None or all(pd is None for pd in obj.pos_data):
+        raise ValueError(
+            "Position data not loaded. Run obj.load_pos() before speed filtering."
+        )
+
+    # Filter spikes for each trial
+    filtered_spikes = {}
+    for trial_idx in trial_list:
+        if obj.pos_data[trial_idx] is None:
+            print(f"Warning: No position data for trial {trial_idx}, skipping")
+            continue
+
+        filtered_spikes[trial_idx] = speed_filter_spikes(
+            current_trial_spikes=unit_spikes[trial_idx],
+            speed_data=obj.pos_data[trial_idx]["speed"],
+            position_sampling_rate=obj.pos_data[trial_idx]["pos_sampling_rate"],
+            speed_lower_bound=speed_lower_bound,
+            speed_upper_bound=speed_upper_bound,
+        )
+
+    return filtered_spikes
+
+
 def bin_pos_data_axona(
     pos_data: dict, bin_length: float = 2.5, speed_threshold: float = 2.5
 ) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray, float]:
