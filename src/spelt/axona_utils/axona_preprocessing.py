@@ -1,3 +1,22 @@
+import os
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import probeinterface
+import probeinterface.probe
+import spikeinterface as si
+import spikeinterface.sorters as ss
+from IPython.core.display import HTML
+from probeinterface import ProbeGroup, generate_tetrode, read_prb
+from probeinterface.plotting import plot_probe_group
+
+warnings.filterwarnings(
+    "ignore", category=DeprecationWarning
+)  # gets rid of some annoying warnings
+
+
 def custom_tetrode_params():
     custom_klusta_params = {
         "adjacency_radius": None,
@@ -66,16 +85,11 @@ def custom_ks2_params():
     return custom_ks2_params
 
 
-import numpy as np
-import pandas as pd
-from probeinterface import generate_tetrode, ProbeGroup
-from probeinterface import write_prb
-from probeinterface.plotting import plot_probe, plot_probe_group
-
-
 def generate_tetrodes(n):
     """
-    Returns a spikeinterface ProbeGroup object with n tetrodes spaced 300um apart vertically
+    Return a spikeinterface ProbeGroup object with n tetrodes.
+
+    Tetrodes are spaced 300um apart vertically.
     """
     probegroup = ProbeGroup()
     for i in range(n):
@@ -86,20 +100,6 @@ def generate_tetrodes(n):
 
     plot_probe_group(probegroup, with_channel_index=True)
     return probegroup
-
-
-import os
-import warnings
-
-warnings.filterwarnings(
-    "ignore", category=DeprecationWarning
-)  # gets rid of some annoying warnings
-from probeinterface import read_prb
-from probeinterface.plotting import plot_probe, plot_probe_group
-from pathlib import Path
-import probeinterface.probe
-import spikeinterface as si
-import spikeinterface.preprocessing as spre
 
 
 def preprocess_axona(
@@ -133,10 +133,11 @@ def preprocess_axona(
     # plot_probe_group(probe, with_channel_index = True)
     # plt.savefig(f'{base_folder}/probe_layout.png')
 
-    if (preprocessing_folder).is_dir() and force_rerun == False:
+    if (preprocessing_folder).is_dir() and not force_rerun:
         recording = si.load_extractor(preprocessing_folder)
         print(
-            f"{preprocessing_folder}\n{electrode_type} recording loaded from previous preprocessing\n {recording}"
+            f"{preprocessing_folder}\n{electrode_type} recording loaded "
+            f"from previous preprocessing\n {recording}"
         )
         return recording
     else:
@@ -144,27 +145,25 @@ def preprocess_axona(
         recording = recording.channel_slice(
             channel_ids=channel_ids[:num_channels]
         )  # Cut to correct number of channels
-        #         recording = spre.bandpass_filter(recording, freq_min=360.0, freq_max=7000.0)
+        #         recording = spre.bandpass_filter(
+        #             recording, freq_min=360.0, freq_max=7000.0
+        #         )
         #         recording = spre.notch_filter(recording, freq = 50)
 
         ## Currently necessary as the probe is being treated as a single shank
         ## This turns the probe object from ProbeGroup to Probe
         if electrode_type == "probe":
-            singleProbe = probeinterface.Probe.from_dict(probe.to_dict()["probes"][0])
-            recording = recording.set_probe(singleProbe)
+            single_probe = probeinterface.Probe.from_dict(probe.to_dict()["probes"][0])
+            recording = recording.set_probe(single_probe)
         elif "tetrode" in electrode_type:
             recording = recording.set_probegroup(probe, group_mode="by_probe")
         elif electrode_type == "5x12_buz":
-            singleProbe = probeinterface.Probe.from_dict(probe.to_dict()["probes"][0])
-            recording = recording.set_probe(singleProbe)
+            single_probe = probeinterface.Probe.from_dict(probe.to_dict()["probes"][0])
+            recording = recording.set_probe(single_probe)
 
         recording.save(folder=preprocessing_folder, overwrite=True)
         print("Recording preprocessed and saved\n")
         return recording
-
-
-import spikeinterface.sorters as ss
-from IPython.core.display import HTML
 
 
 def sort_axona(recording, recording_name, base_folder, electrode_type, sorting_suffix):
@@ -183,9 +182,10 @@ def sort_axona(recording, recording_name, base_folder, electrode_type, sorting_s
             print(f"Sorting loaded from file {sorting_path}\n")
         except ValueError:
             print(
-                f"Sorting at {sorting_path} failed to load - try deleting the folder and rerun"
+                f"Sorting at {sorting_path} failed to load - "
+                f"try deleting the folder and rerun"
             )
-            raise ValueError
+            raise ValueError from None
 
     else:
         # Run klusta on tetrode recording using custom_tetrode_params above
@@ -199,15 +199,12 @@ def sort_axona(recording, recording_name, base_folder, electrode_type, sorting_s
                 **custom_tetrode_params(),
             )
             print(
-                f"Recording sorted!\n Klusta found {len(sorting.get_unit_ids())} units\n"
+                f"Recording sorted!\n Klusta found "
+                f"{len(sorting.get_unit_ids())} units\n"
             )
 
         # Run klusta on probe recording using custom_probe_params above
-        elif (
-            electrode_type == "probe"
-            or electrode_type == "32 ch four shanks"
-            or electrode_type == "5x12_buz"
-        ):
+        elif electrode_type in ("probe", "32 ch four shanks", "5x12_buz"):
             sorting = ss.run_sorter(
                 "kilosort2",
                 recording,
@@ -233,15 +230,13 @@ def get_mode(set_file):
     # Gets recording mode from channel 0 in set file
     # Assumes all channels are recorded in the same mode
 
-    f = open(set_file, "r")
+    f = open(set_file)
     mode = f.readlines()[14][10]
     return mode
 
 
 def concat_cluster_info(folder):
     # Concatenate cluster info files for tetrode recordings (once curated)
-    import os
-    import pandas as pd
 
     # List cluster info files for each tetrode
     tsvs = []
@@ -262,14 +257,17 @@ def concat_cluster_info(folder):
 
 def pos_from_bin(path):
     """
-    Function for generating an Axona .pos position tracking file directly from raw recording data
-    Input required is the path to the .set and .bin file (including the trial name, without the file extension, both files must be in the same directory)
-    The .pos file will be written into this directory, and should be the same format as those generated by DacqUSB
+    Generate Axona .pos position tracking file from raw recording data.
+
+    Input required is the path to the .set and .bin file (including the
+    trial name, without the file extension, both files must be in the same
+    directory). The .pos file will be written into this directory, and
+    should be the same format as those generated by DacqUSB.
     Jake Swann, 2023
     """
 
     header = []
-    with open(f"{path}.set", "r") as f:
+    with open(f"{path}.set") as f:
         set_file = f.readlines()
 
     trial_duration = round(
@@ -332,11 +330,12 @@ def pos_from_bin(path):
         if packet_id == "ADU2":
             pos_sample = packet[12:32]
 
-            # Flip digits in pos data for saving (this is how they are in the .pos relative to the .bin)
+            # Flip digits in pos data for saving (this is how they are
+            # in the .pos relative to the .bin)
             pos_first = pos_sample[::2]
             pos_second = pos_sample[1::2]
             pos_sample = []
-            for n, i in enumerate(pos_first):
+            for n in range(len(pos_first)):
                 pos_sample.append(pos_second[n])
                 pos_sample.append(pos_first[n])
 
@@ -350,10 +349,10 @@ def pos_from_bin(path):
             numpix2s.append(int.from_bytes(bytes(pos_sample[14:16]), "big"))
             totalpixs.append(int.from_bytes(bytes(pos_sample[16:18]), "big"))
 
-            # the X and Y values are reversed piece-wise so lets switch the format from
-            # packet #, video timestamp, y1, x1, y2, x2, numpix1, numpix2, total_pix, unused value
-            # to
-            # packet #, video timestamp, x1, y1, x2, y2, numpix1, numpix2, total_pix, unused value
+            # the X and Y values are reversed piece-wise so lets switch the
+            # format from packet #, video timestamp, y1, x1, y2, x2, numpix1,
+            # numpix2, total_pix, unused value to packet #, video timestamp,
+            # x1, y1, x2, y2, numpix1, numpix2, total_pix, unused value
             y1 = pos_sample[4:6]
             x1 = pos_sample[6:8]
             y2 = pos_sample[8:10]
@@ -397,6 +396,6 @@ def pos_from_bin(path):
             f.write(line.encode())
         for pos_sample in position_data:
             f.write(pos_sample)
-        f.write("\r\ndata_end\r\n".encode())
+        f.write(b"\r\ndata_end\r\n")
 
         f.close()

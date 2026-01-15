@@ -1,16 +1,18 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 
 def create_direction_polar_plot(spike_times, frame_times, directions, n_bins):
     """
-    Create a direction polar plot for spike data. Currently no smoothing operations are performed.
+    Create a direction polar plot for spike data.
+
+    Currently no smoothing operations are performed.
 
     Parameters:
-    - spike_times (list or array): List or array of timestamps where spikes occur.
-    - frame_times (list or array): List or array of timestamps where each frame was taken.
-    - directions (list or array): List or array of directions corresponding to each frame.
+    - spike_times (list or array): Timestamps where spikes occur.
+    - frame_times (list or array): Timestamps where each frame was taken.
+    - directions (list or array): Directions corresponding to each frame.
     - n_bins (int): Number of direction bins to use.
 
     Outputs:
@@ -34,14 +36,14 @@ def make_direction_rate_map(spike_times, frame_times, directions, n_bins):
     Create a directional rate map DataFrame.
 
     Parameters:
-    - spike_times (list or array): List or array of timestamps where spikes occur.
-    - frame_times (list or array): List or array of timestamps where each frame was taken.
-    - directions (list or array): List or array of directions corresponding to each frame.
+    - spike_times (list or array): Timestamps where spikes occur.
+    - frame_times (list or array): Timestamps where each frame was taken.
+    - directions (list or array): Directions corresponding to each frame.
     - n_bins (int): Number of direction bins to use.
 
     Returns:
-    - result_df (DataFrame): A DataFrame containing the direction bins, total time, spike count,
-      and spike count per unit time.
+    - result_df (DataFrame): A DataFrame containing the direction bins,
+      total time, spike count, and spike count per unit time.
     """
     # Check input types and values
     spike_times = np.asarray(spike_times)
@@ -112,8 +114,8 @@ def plot_direction_rate_map(result_df):
     Plot the directional rate map as a polar plot.
 
     Parameters:
-    - result_df (DataFrame): DataFrame containing the direction bins, total time, spike count,
-      and spike count per unit time.
+    - result_df (DataFrame): DataFrame containing the direction bins,
+        total time, spike count, and spike count per unit time.
 
     Outputs:
     - A polar plot showing spike count per unit time for each direction bin.
@@ -122,7 +124,7 @@ def plot_direction_rate_map(result_df):
     radii = result_df["Count_Per_Time"].values
 
     fig, ax = plt.subplots(subplot_kw={"projection": "polar"})
-    bars = ax.bar(theta, radii, width=2 * np.pi / len(result_df), bottom=0.0)
+    _ = ax.bar(theta, radii, width=2 * np.pi / len(result_df), bottom=0.0)
 
     ax.set_theta_direction(-1)
     ax.set_theta_offset(np.pi / 2.0)

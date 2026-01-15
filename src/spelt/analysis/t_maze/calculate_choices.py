@@ -1,5 +1,10 @@
 import numpy as np
 
+from spelt.analysis.t_maze.arm_state_detection import (
+    get_arm_visit_sequence,
+    identify_arm_states,
+)
+
 
 def calculate_choices(xy_positions, sector_numbers):
     """
@@ -47,42 +52,12 @@ def calculate_choices(xy_positions, sector_numbers):
     Finally, it calculates the proportion of correct choices and the proportion of left
     choices and returns these values in a dictionary.
     """
-    arm_ind = np.zeros(len(sector_numbers))
-
-    choice = ""
-    # # Initialize choice as starting arm (usually centre)
-    # if sector_numbers[0] in [5,6,7,8]:
-    #     choice = 'centre'
-    # elif sector_numbers[0] in [1,2,3,4]:
-    #     choice = 'left'
-    #     print('Animal not starting trial in centre arm')
-    # elif sector_numbers[0] in [9, 10, 11, 12]:
-    #     choice = 'right'
-    #     print('Animal not starting trial in centre arm')
-    # else:
-    #     choice = ''
-    #     print('Sectors assigned incorrectly, please check')
-
-    for i in range(len(sector_numbers)):
-        if sector_numbers[i] == 8:
-            choice = "centre"
-        elif sector_numbers[i] == 1:
-            choice = "left"
-        elif sector_numbers[i] == 9:
-            choice = "right"
-
-        if choice == "centre":
-            arm_ind[i] = 0
-        elif choice == "left":
-            arm_ind[i] = 1
-        elif choice == "right":
-            arm_ind[i] = 2
-        else:
-            arm_ind[i] = -1
+    # Use shared logic to identify arm states
+    arm_ind = identify_arm_states(sector_numbers)
 
     # Calculate total choice counts & proportion correct
-    # Create sequence of arm visits
-    arm_visit_order = arm_ind[np.concatenate([[True], np.diff(arm_ind) != 0])]
+    # Create sequence of arm visits (remove consecutive duplicates)
+    arm_visit_order = get_arm_visit_sequence(arm_ind)
 
     # Initialize counters
     total_choices = 0

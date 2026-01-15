@@ -1,8 +1,5 @@
-import struct
 import numpy as np
 import pandas as pd
-from scipy.ndimage import uniform_filter
-from scipy.interpolate import interp1d
 
 
 def write_csv_from_pos(file_path):
@@ -15,7 +12,6 @@ def write_csv_from_pos(file_path):
     numpix1s = []
     numpix2s = []
     totalpixs = []
-    empty = []
 
     with open(file_path, "rb") as file:
         content = file.read()
@@ -60,8 +56,10 @@ def led_swap_filter(led_pos, led_pix, thresh=5):
     replacing the little one when the big one gets obscured.
 
     Parameters:
-    led_pos: numpy array of shape (4, n_pos) containing the x, y position of each LED, in the order [X1, Y1, X2, Y2]
-    led_pix: numpy array of shape (2, n_pos) containing the number of pixels in each LED
+    led_pos: numpy array of shape (4, n_pos) containing the x, y position
+        of each LED, in the order [X1, Y1, X2, Y2]
+    led_pix: numpy array of shape (2, n_pos) containing the number of
+        pixels in each LED
     thresh: threshold for determining if a swap has occurred
 
     Returns:
@@ -97,7 +95,8 @@ def led_swap_filter(led_pos, led_pix, thresh=5):
         np.isnan(led_pos[2, pos]) | (dist21 < dist22 - thresh)
     )
 
-    # Check if size of big light has shrunk to be closer to that of small light (as Z score)
+    # Check if size of big light has shrunk to be closer to that of
+    # small light (as Z score)
     z11 = (mean_npix[0] - led_pix[0, pos]) / std_npix[0]
     z12 = (led_pix[0, pos] - mean_npix[1]) / std_npix[1]
     shrunk = z11 > z12
@@ -124,11 +123,15 @@ def led_swap_filter(led_pos, led_pix, thresh=5):
 
 def led_speed_filter(led_pos, max_pix_per_sample):
     """
-    This function filters out short runs of data caused by the tracker picking up an incorrect distant point.
-    It resets the led_pos to NaN for those positions.
+    Filter out short runs of data caused by tracker errors.
+
+    This function filters out short runs of data caused by the tracker
+    picking up an incorrect distant point. It resets the led_pos to NaN
+    for those positions.
 
     Parameters:
-    led_pos: pandas DataFrame of shape (4, n_pos) containing the x, y position of each LED, in the order [X1, Y1, X2, Y2]
+    led_pos: pandas DataFrame of shape (4, n_pos) containing the x, y
+        position of each LED, in the order [X1, Y1, X2, Y2]
     max_pix_per_sample: maximum allowed speed of the LED in pixels per sample
 
     Returns:
@@ -171,11 +174,15 @@ def led_speed_filter(led_pos, max_pix_per_sample):
 
 def interpolate_nan_values(df):
     """
-    This function identifies the time points when any LEDs have a NaN value, sets all LEDs at that time point to NaN,
-    and then interpolates the position for all LEDs.
+    Interpolate position data for LEDs with NaN values.
+
+    This function identifies the time points when any LEDs have a NaN value,
+    sets all LEDs at that time point to NaN, and then interpolates the
+    position for all LEDs.
 
     Parameters:
-    df: pandas DataFrame of shape (4, n_pos) containing the x, y position of each LED, in the order [X1, Y1, X2, Y2]
+    df: pandas DataFrame of shape (4, n_pos) containing the x, y position
+        of each LED, in the order [X1, Y1, X2, Y2]
 
     Returns:
     df_interpolated: DataFrame with interpolated values for NaNs
@@ -195,11 +202,15 @@ def interpolate_nan_values(df):
 
 def boxcar_smooth(df, window_size):
     """
-    This function applies a boxcar (moving average) smoothing to the DataFrame using scipy's boxcar function.
-    It also interpolates between existing values to handle NaN values and fills remaining NaNs.
+    Apply boxcar (moving average) smoothing to the DataFrame.
+
+    This function applies a boxcar (moving average) smoothing to the
+    DataFrame using scipy's boxcar function. It also interpolates between
+    existing values to handle NaN values and fills remaining NaNs.
 
     Parameters:
-    df: pandas DataFrame of shape (4, n_pos) containing the x, y position of each LED, in the order [X1, Y1, X2, Y2]
+    df: pandas DataFrame of shape (4, n_pos) containing the x, y position
+        of each LED, in the order [X1, Y1, X2, Y2]
     window_size: size of the smoothing window
 
     Returns:
@@ -227,11 +238,13 @@ def boxcar_smooth(df, window_size):
 
 def calculate_position(led_pos, proportion):
     """
-    This function calculates a single position some proportion of the way between the two points X1, Y1 and X2, Y2.
+    Calculate a single position between two points X1, Y1 and X2, Y2.
 
     Parameters:
-    df_increasing: pandas DataFrame of shape (4, n_pos) containing the x, y position of each point, in the order [X1, Y1, X2, Y2]
-    proportion: proportion of the way between the two points for which to calculate the position
+    df_increasing: pandas DataFrame of shape (4, n_pos) containing the x, y
+        position of each point, in the order [X1, Y1, X2, Y2]
+    proportion: proportion of the way between the two points for which to
+        calculate the position
 
     Returns:
     pos: calculated position
@@ -269,7 +282,7 @@ def calculate_heading_direction(pos):
 
 def calculate_speed(pos, pos_sample_rate, pix_per_metre):
     """
-    This function calculates the speed of the movement based on the position displacement.
+    Calculate the speed of the movement based on the position displacement.
 
     Parameters:
     pos: pandas DataFrame of shape (2, n_pos) containing the x, y position
@@ -331,9 +344,9 @@ def postprocess_pos_data(posdata, max_speed, smoothing_window_size):
     )
 
     # Get position from smoothed individual lights
-    headPos = 0.5  # Hard-coded for now, not included in current metadata
+    head_pos = 0.5  # Hard-coded for now, not included in current metadata
     # Proportional distance of the rat's head between the LEDs, 0.5 being halfway
-    xy_pos = calculate_position(led_pos, headPos)
+    xy_pos = calculate_position(led_pos, head_pos)
 
     # Calculate heading from displacement
     direction_disp = calculate_heading_direction(xy_pos)

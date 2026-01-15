@@ -4,7 +4,9 @@ import pandas as pd
 
 def load_pos_axona(path, override_ppm=None):
     """
-    Load position data from .pos file and associated .csv file created during axona_preprocessing.pos_from_bin
+    Load position data from .pos file and associated .csv file.
+
+    Created during axona_preprocessing.pos_from_bin.
 
     Parameters
     ----------
@@ -16,7 +18,8 @@ def load_pos_axona(path, override_ppm=None):
     Returns
     -------
     dict
-        Dictionary containing the header information and position data from the .pos file
+        Dictionary containing the header information and position data from
+        the .pos file
     float
         Sampling rate of the position data
     """
@@ -28,7 +31,8 @@ def load_pos_axona(path, override_ppm=None):
     with open(f"{path}.pos", "rb") as fid:
         pos_header = {}
 
-        # Read the lines of the file up to the specified number (27 in this case) and write into dict
+        # Read the lines of the file up to the specified number
+        # (27 in this case) and write into dict
         for _ in range(27):
             line = fid.readline()
             if not line:

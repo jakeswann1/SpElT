@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.interpolate import griddata
+from scipy.spatial import QhullError
 from scipy.stats import pearsonr
 
 
@@ -13,7 +14,15 @@ def interpolate_map(map, max_dim):
 
     Returns:
     ndarray: The interpolated map.
+
+    Notes:
+    If interpolation fails (e.g., due to collinear data points), returns
+    a map filled with NaN values.
     """
+
+    # If map is already the target size, return it directly
+    if map.shape == (max_dim[0], max_dim[1]):
+        return map.copy()
 
     x = np.arange(map.shape[1])
     y = np.arange(map.shape[0])
@@ -24,13 +33,23 @@ def interpolate_map(map, max_dim):
     coords = np.array((xx[valid_entries], yy[valid_entries])).T
     values = map[valid_entries]
 
+    # Check if we have enough non-collinear points for interpolation
+    if len(values) < 3:
+        # Not enough points for interpolation
+        return np.full((max_dim[0], max_dim[1]), np.nan)
+
     # Create grid for new dimensions
     grid_x, grid_y = np.mgrid[0 : max_dim[1], 0 : max_dim[0]]
 
     # Interpolate using griddata
-    interpolated_map = griddata(
-        coords, values, (grid_x, grid_y), method="linear", fill_value=np.nan
-    )
+    try:
+        interpolated_map = griddata(
+            coords, values, (grid_x, grid_y), method="linear", fill_value=np.nan
+        )
+    except QhullError:
+        # Interpolation failed (likely due to collinear points)
+        # Return NaN-filled map
+        interpolated_map = np.full((max_dim[0], max_dim[1]), np.nan)
 
     return interpolated_map
 
