@@ -13,7 +13,6 @@ from .mask_rate_maps_by_sector import (
 )
 from .pad_rate_maps import pad_rate_maps_to_match
 from .plot_splitter_maps import plot_splitter_maps, plot_splitter_population
-from .splitter_significance import splitter_significance
 from .splitter_significance_1d import splitter_significance_1d
 
 __all__ = [
@@ -29,6 +28,5 @@ __all__ = [
     "pad_rate_maps_to_match",
     "plot_splitter_maps",
     "plot_splitter_population",
-    "splitter_significance",
     "splitter_significance_1d",
 ]
