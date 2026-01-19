@@ -211,12 +211,11 @@ def plot_splitter_maps(
     vmax = max(np.nanmax(left_rate_map), np.nanmax(right_rate_map))
 
     # Plot left-choice map
-    im1 = axes[0].imshow(
+    _ = axes[0].imshow(
         left_rate_map, cmap=cmap, origin="lower", vmin=0, vmax=vmax, aspect="equal"
     )
     axes[0].set_title("Left-choice trajectories", fontsize=11, fontweight="bold", pad=5)
     axes[0].axis("off")
-    plt.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04, label="Hz")
 
     # Plot right-choice map
     im2 = axes[1].imshow(

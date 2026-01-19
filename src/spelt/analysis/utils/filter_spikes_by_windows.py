@@ -235,3 +235,114 @@ def filter_spikes_by_windows_separate(
     )
 
     return left_spikes, right_spikes
+
+
+def filter_spikes_by_sectors(
+    spike_data: dict[int, np.ndarray],
+    spike_times_already_aligned: bool,
+    pos_bin_idx: tuple[np.ndarray, np.ndarray],
+    pos_sample_times: np.ndarray,
+    pos_sampling_rate: float,
+    sectors: list[int],
+    pos_header: dict,
+    bin_size: float = 2.5,
+) -> dict[int, np.ndarray]:
+    """
+    Filter spike times to only those occurring when animal was in specified sectors.
+
+    Matches each spike to the nearest position sample and filters out spikes
+    that occurred when the animal was outside the target sectors.
+
+    Parameters
+    ----------
+    spike_data : dict
+        {unit_id: spike_times} - spike times for each unit
+    spike_times_already_aligned : bool
+        If True, spike times are in synthetic time coordinates matching pos_sample_times
+        If False, spike times are in original recording timestamps.
+    pos_bin_idx : tuple of (x_bins, y_bins)
+        Position bin indices (already time-filtered)
+    pos_sample_times : np.ndarray
+        Timestamps for position samples (synthetic if align_to_synthetic_time was used)
+    pos_sampling_rate : float
+        Position sampling rate in Hz
+    sectors : list of int
+        List of sector numbers to include
+    pos_header : dict
+        Position header with spatial boundaries
+    bin_size : float
+        Spatial bin size in cm (default: 2.5)
+
+    Returns
+    -------
+    filtered_spike_data : dict
+        {unit_id: filtered_spike_times} - only spikes in target sectors
+
+    Notes
+    -----
+    - Uses same spike-to-position matching logic as make_1d_rate_maps()
+    - Time tolerance = 1.0 / pos_sampling_rate
+    - Spikes without valid position match are excluded
+
+    Examples
+    --------
+    >>> # Filter spikes to only center stem
+    >>> filtered_spikes = filter_spikes_by_sectors(
+    ...     spike_data={42: np.array([1.0, 2.0, 3.0])},
+    ...     spike_times_already_aligned=True,
+    ...     pos_bin_idx=(x_bins, y_bins),
+    ...     pos_sample_times=times,
+    ...     pos_sampling_rate=50.0,
+    ...     sectors=[6, 7],
+    ...     pos_header=header,
+    ...     bin_size=2.5
+    ... )
+    """
+    from spelt.analysis.t_maze.assign_sectors import bin_indices_to_sectors
+
+    x_bins, y_bins = pos_bin_idx
+
+    # Handle empty position data
+    if len(x_bins) == 0:
+        return {unit_id: np.array([]) for unit_id in spike_data.keys()}
+
+    # Convert bin indices to sector numbers for all position samples
+    sector_numbers = bin_indices_to_sectors(x_bins, y_bins, pos_header, bin_size)
+
+    # Create mask for target sectors
+    in_target_sectors = np.isin(sector_numbers, sectors) & ~np.isnan(sector_numbers)
+
+    # Time tolerance for spike-position matching
+    time_tolerance = 1.0 / pos_sampling_rate
+
+    # Filter spikes for each unit
+    filtered_spike_data = {}
+
+    for unit_id, spike_times in spike_data.items():
+        if len(spike_times) == 0:
+            filtered_spike_data[unit_id] = np.array([])
+            continue
+
+        # Find nearest position sample for each spike
+        # Same logic as make_1d_rate_maps()
+        insert_idx = np.searchsorted(pos_sample_times, spike_times)
+        insert_idx = np.clip(insert_idx, 0, len(pos_sample_times) - 1)
+
+        # Check distances to nearest position samples
+        time_diffs = np.abs(pos_sample_times[insert_idx] - spike_times)
+
+        # Also check previous index
+        prev_idx = np.clip(insert_idx - 1, 0, len(pos_sample_times) - 1)
+        prev_diffs = np.abs(pos_sample_times[prev_idx] - spike_times)
+
+        # Use closest index
+        use_prev = prev_diffs <= time_diffs
+        closest_idx = np.where(use_prev, prev_idx, insert_idx)
+        min_diffs = np.where(use_prev, prev_diffs, time_diffs)
+
+        # Valid spikes: within time tolerance AND in target sectors
+        valid_mask = (min_diffs < time_tolerance) & in_target_sectors[closest_idx]
+
+        filtered_spike_data[unit_id] = spike_times[valid_mask]
+
+    return filtered_spike_data

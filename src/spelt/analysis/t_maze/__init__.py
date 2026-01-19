@@ -1,4 +1,8 @@
-from .assign_sectors import assign_sectors
+from .assign_sectors import (
+    assign_sectors,
+    bin_indices_to_sectors,
+    filter_position_by_sectors,
+)
 from .calculate_choices import calculate_choices
 from .get_sector_times import get_sector_times
 from .identify_choice_trajectories import (
@@ -17,7 +21,9 @@ from .splitter_significance_1d import splitter_significance_1d
 
 __all__ = [
     "assign_sectors",
+    "bin_indices_to_sectors",
     "calculate_choices",
+    "filter_position_by_sectors",
     "get_sector_times",
     "identify_choice_trajectories_batch",
     "identify_choice_trajectories_from_ephys",

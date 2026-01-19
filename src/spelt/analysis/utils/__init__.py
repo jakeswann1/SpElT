@@ -3,6 +3,9 @@ from spelt.analysis.utils.filter_position_by_windows import (
     filter_position_by_windows as filter_position_by_windows,
 )
 from spelt.analysis.utils.filter_spikes_by_windows import (
+    filter_spikes_by_sectors as filter_spikes_by_sectors,
+)
+from spelt.analysis.utils.filter_spikes_by_windows import (
     filter_spikes_by_windows as filter_spikes_by_windows,
 )
 from spelt.analysis.utils.filter_spikes_by_windows import (

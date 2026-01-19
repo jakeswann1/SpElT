@@ -120,13 +120,17 @@ def check_minimum_activity(
 
 
 def precompute_window_position_bins(
-    windows: list[tuple], pos_bin_data: dict[int, dict]
+    windows: list[tuple],
+    pos_bin_data: dict[int, dict],
+    sectors: list[int] | None = None,
+    pos_header: dict | None = None,
+    bin_size: float = 2.5,
 ) -> tuple[list[np.ndarray], float]:
     """
     Pre-compute filtered position bins (X indices only) for each window.
 
     This extracts and collapses position data for each window individually,
-    but does NOT create synthetic timestamps yet. Timestamps must be created
+    optionally filtering by sectors if specified. Timestamps must be created
     after concatenating windows to ensure monotonicity.
 
     Parameters
@@ -135,6 +139,12 @@ def precompute_window_position_bins(
         List of (trial_idx, start_time, end_time) tuples
     pos_bin_data : dict
         {trial_idx: bin_data_dict}
+    sectors : list of int, optional
+        If provided, only include position samples from these sectors
+    pos_header : dict, optional
+        Required if sectors is provided
+    bin_size : float
+        Spatial bin size in cm (required if sectors provided)
 
     Returns
     -------
@@ -143,6 +153,8 @@ def precompute_window_position_bins(
     pos_sampling_rate : float
         Position sampling rate (Hz)
     """
+    from spelt.analysis.t_maze.assign_sectors import bin_indices_to_sectors
+
     x_bins_per_window = []
     pos_sampling_rate = None
 
@@ -155,17 +167,20 @@ def precompute_window_position_bins(
         pos_bin_idx = bin_data["pos_bin_idx"]
         timestamps = bin_data["pos_sample_times"]
 
-        # Extract X bins (handle both tuple and array formats)
+        # Extract X and Y bins (handle both tuple and array formats)
         if isinstance(pos_bin_idx, tuple):
             # Tuple format: (x_bins, y_bins)
             x_bins = pos_bin_idx[0]
+            y_bins = pos_bin_idx[1]
         elif isinstance(pos_bin_idx, np.ndarray):
             if pos_bin_idx.ndim == 1:
-                # Already 1D
+                # Already 1D - no sector filtering possible
                 x_bins = pos_bin_idx
+                y_bins = None
             elif pos_bin_idx.shape[1] == 2:
                 # 2D array format: columns are [y_idx, x_idx]
-                x_bins = pos_bin_idx[:, 1]  # Column 1 is X!
+                x_bins = pos_bin_idx[:, 1]  # Column 1 is X
+                y_bins = pos_bin_idx[:, 0]  # Column 0 is Y
             else:
                 raise ValueError(f"Unexpected pos_bin_idx shape: {pos_bin_idx.shape}")
         else:
@@ -178,8 +193,27 @@ def precompute_window_position_bins(
             x_bins_per_window.append(np.array([]))
             continue
 
+        # Apply time filter
+        x_bins_filtered = x_bins[mask]
+
+        # Apply sector filter if requested
+        if sectors is not None and y_bins is not None:
+            if pos_header is None:
+                raise ValueError("pos_header required when filtering by sectors")
+
+            y_bins_filtered = y_bins[mask]
+
+            # Convert to sector numbers
+            sector_numbers = bin_indices_to_sectors(
+                x_bins_filtered, y_bins_filtered, pos_header, bin_size
+            )
+
+            # Filter to target sectors
+            sector_mask = np.isin(sector_numbers, sectors) & ~np.isnan(sector_numbers)
+            x_bins_filtered = x_bins_filtered[sector_mask]
+
         # Store just the X bins for this window
-        x_bins_per_window.append(x_bins[mask])
+        x_bins_per_window.append(x_bins_filtered)
 
         if pos_sampling_rate is None:
             pos_sampling_rate = bin_data["pos_sampling_rate"]
@@ -361,9 +395,10 @@ def splitter_significance_1d(
 
     print(f"  Computing splitter significance (sectors {correlation_sectors})...")
     print(f"    Running {n_shuffles} shuffles with {n_jobs} parallel jobs...")
-    print("    Using 1D (X-only) analysis...")
+    print("    Using 1D (X-only) analysis with sector filtering...")
 
-    # Step 1: Generate real 1D rate maps
+    # Step 1: Generate real 1D rate maps WITH SECTOR FILTERING
+    # 1a. Filter spikes by trajectory windows (time filtering)
     left_spikes, right_spikes = filter_spikes_by_windows_separate(
         left_windows,
         right_windows,
@@ -372,6 +407,7 @@ def splitter_significance_1d(
         align_to_synthetic_time=True,
     )
 
+    # 1b. Filter position by trajectory windows (time filtering)
     left_pos_bin_idx, left_pos_times, left_pos_rate = filter_position_by_windows(
         left_windows, pos_bin_data
     )
@@ -379,7 +415,51 @@ def splitter_significance_1d(
         right_windows, pos_bin_data
     )
 
-    # Collapse to 1D
+    # 1c. Filter position by sectors (NEW STEP)
+    from spelt.analysis.t_maze.assign_sectors import filter_position_by_sectors
+
+    left_pos_bin_idx, left_pos_times, left_pos_rate = filter_position_by_sectors(
+        left_pos_bin_idx,
+        left_pos_times,
+        left_pos_rate,
+        sectors=correlation_sectors,
+        pos_header=pos_header,
+        bin_size=bin_size,
+    )
+    right_pos_bin_idx, right_pos_times, right_pos_rate = filter_position_by_sectors(
+        right_pos_bin_idx,
+        right_pos_times,
+        right_pos_rate,
+        sectors=correlation_sectors,
+        pos_header=pos_header,
+        bin_size=bin_size,
+    )
+
+    # 1d. Filter spikes by sectors (NEW STEP)
+    from spelt.analysis.utils.filter_spikes_by_windows import filter_spikes_by_sectors
+
+    left_spikes = filter_spikes_by_sectors(
+        left_spikes,
+        spike_times_already_aligned=True,
+        pos_bin_idx=left_pos_bin_idx,
+        pos_sample_times=left_pos_times,
+        pos_sampling_rate=left_pos_rate,
+        sectors=correlation_sectors,
+        pos_header=pos_header,
+        bin_size=bin_size,
+    )
+    right_spikes = filter_spikes_by_sectors(
+        right_spikes,
+        spike_times_already_aligned=True,
+        pos_bin_idx=right_pos_bin_idx,
+        pos_sample_times=right_pos_times,
+        pos_sampling_rate=right_pos_rate,
+        sectors=correlation_sectors,
+        pos_header=pos_header,
+        bin_size=bin_size,
+    )
+
+    # 1e. Collapse to 1D (X only)
     left_x_idx, left_times, left_rate = collapse_position_bins_to_x(
         left_pos_bin_idx, left_pos_times, left_pos_rate
     )
@@ -415,13 +495,17 @@ def splitter_significance_1d(
     # Determine X bin range for correlation sectors
     x_min_bin, x_max_bin = get_sector_x_bins(pos_header, bin_size, correlation_sectors)
 
-    # Step 2: Pre-compute position bins for all windows (optimization)
+    # Step 2: Pre-compute position bins for all windows WITH SECTOR FILTERING
     print("    Pre-computing position bins for all windows...")
     all_windows = left_windows + right_windows
     n_left = len(left_windows)
 
     precomputed_x_bins, pos_rate = precompute_window_position_bins(
-        all_windows, pos_bin_data
+        all_windows,
+        pos_bin_data,
+        sectors=correlation_sectors,
+        pos_header=pos_header,
+        bin_size=bin_size,
     )
 
     # Step 3: Run shuffles in parallel
