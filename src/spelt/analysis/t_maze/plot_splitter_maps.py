@@ -92,15 +92,18 @@ def plot_splitter_maps(
     correlation_sectors: list[int] | None = None,
     pos_header: dict | None = None,
     bin_size: float = 2.5,
-    figsize: tuple = (12, 5),
+    left_rate_profile_1d: np.ndarray | None = None,
+    right_rate_profile_1d: np.ndarray | None = None,
+    p_values_per_bin: np.ndarray | None = None,
+    figsize: tuple = (15, 8),
     cmap: str = "jet",
     save_path: str | None = None,
 ) -> tuple[plt.Figure, np.ndarray]:
     """
     Plot side-by-side rate maps for left and right choice trajectories.
 
-    Creates a figure with three panels: left-choice rate map, right-choice
-    rate map, and their difference map.
+    Creates a figure with four panels: left-choice rate map, right-choice
+    rate map, their difference map, and 1D rate profiles with significance.
 
     Parameters
     ----------
@@ -129,12 +132,11 @@ def plot_splitter_maps(
     is_significant_splitter : bool, optional
         Whether this unit is a significant splitter cell
     n_significant_bins : int, optional
-        Number of significant X positions (collapsed across Y, for display)
+        Number of significant X positions
     significant_bins_mask : np.ndarray, optional
-        Boolean mask of significant bins (same shape as rate maps).
-        Marks all bins in significant X columns within dual occupancy.
-        Significant X columns are visualized as semi-transparent yellow
-        vertical bars on the difference map.
+        1D boolean mask of significant X bins (from correlation sectors).
+        Used to highlight significant X positions on 2D difference map
+        and 1D profile plot.
     correlation_sectors : list of int, optional
         Sector numbers used for correlation analysis (e.g., [6, 7])
     pos_header : dict, optional
@@ -142,6 +144,12 @@ def plot_splitter_maps(
         (required if correlation_sectors provided)
     bin_size : float, optional
         Spatial bin size in cm (default: 2.5)
+    left_rate_profile_1d : np.ndarray, optional
+        1D firing rate profile for left trajectories (Hz vs X position)
+    right_rate_profile_1d : np.ndarray, optional
+        1D firing rate profile for right trajectories (Hz vs X position)
+    p_values_per_bin : np.ndarray, optional
+        P-values for each X bin from shuffle test (same length as 1D profiles)
     figsize : tuple, optional
         Figure size (width, height) in inches
     cmap : str, optional
@@ -163,15 +171,41 @@ def plot_splitter_maps(
     ...     left_rate_map=left_map,
     ...     right_rate_map=right_map,
     ...     correlation=0.35,
-    ...     session_name='r1364_230613'
+    ...     session_name='r1364_230613',
+    ...     left_rate_profile_1d=left_profile,
+    ...     right_rate_profile_1d=right_profile
     ... )
     """
     fig = plt.figure(figsize=figsize)
-    gs = GridSpec(
-        1, 3, figure=fig, wspace=0.4, left=0.05, right=0.95, top=0.85, bottom=0.05
+
+    # Determine if we need the 1D panel
+    show_1d_panel = (
+        left_rate_profile_1d is not None and right_rate_profile_1d is not None
     )
 
-    axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    if show_1d_panel:
+        # Two rows: top row for 2D maps, bottom row for 1D profile
+        gs = GridSpec(
+            2,
+            3,
+            figure=fig,
+            height_ratios=[2, 1],
+            hspace=0.35,
+            wspace=0.4,
+            left=0.05,
+            right=0.95,
+            top=0.88,
+            bottom=0.08,
+        )
+        axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
+        ax_1d = fig.add_subplot(gs[1, :])  # 1D panel spans all columns
+        axes.append(ax_1d)
+    else:
+        # Original layout: single row with 3 panels
+        gs = GridSpec(
+            1, 3, figure=fig, wspace=0.4, left=0.05, right=0.95, top=0.85, bottom=0.05
+        )
+        axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
 
     # Determine common scale for left and right maps (use max across both)
     vmax = max(np.nanmax(left_rate_map), np.nanmax(right_rate_map))
@@ -217,7 +251,7 @@ def plot_splitter_maps(
             )
 
             # Draw grey rectangle on all three plots showing correlation sectors
-            for ax in axes:
+            for ax in axes[:3]:  # Only draw on the three 2D maps
                 rect = patches.Rectangle(
                     (x_min - 0.5, y_min - 0.5),  # -0.5 for bin edge alignment
                     x_max - x_min,
@@ -237,43 +271,76 @@ def plot_splitter_maps(
 
     # Highlight significant X columns on difference map
     if significant_bins_mask is not None and np.any(significant_bins_mask):
-        # Get the shape of the rate map
-        height, width = significant_bins_mask.shape
-
-        # Find which X columns are significant (have any True values)
-        significant_x_columns = np.any(significant_bins_mask, axis=0)
-
-        # Get sector boundaries if available (for constraining highlight)
-        try:
+        # Handle both 1D and 2D masks
+        if significant_bins_mask.ndim == 1:
+            # 1D mask: significant X bins from correlation sectors
+            # Get sector boundaries to determine which X bins to highlight
             if correlation_sectors is not None and pos_header is not None:
-                x_min, x_max, y_min, y_max = _get_sector_boundaries_in_bins(
-                    correlation_sectors,
-                    significant_bins_mask.shape,
-                    pos_header,
-                    bin_size,
-                )
-            else:
-                # Use full extent
-                x_min, x_max, y_min, y_max = -0.5, width - 0.5, -0.5, height - 0.5
-        except Exception:
-            # Fallback to full extent
-            x_min, x_max, y_min, y_max = -0.5, width - 0.5, -0.5, height - 0.5
+                try:
+                    x_min_sector, x_max_sector, y_min, y_max = (
+                        _get_sector_boundaries_in_bins(
+                            correlation_sectors,
+                            left_rate_map.shape,
+                            pos_header,
+                            bin_size,
+                        )
+                    )
 
-        # Draw vertical highlight bars for each significant X position
-        for x_idx in np.where(significant_x_columns)[0]:
-            # Draw a semi-transparent yellow/gold rectangle spanning the Y extent
-            # Constrained by sector boundaries
-            rect = patches.Rectangle(
-                (x_idx - 0.5, y_min - 0.5),  # -0.5 for bin edge alignment
-                1.0,  # Width of one bin
-                y_max - y_min,  # Height of sector region
-                linewidth=0,
-                edgecolor="none",
-                facecolor="orange",
-                alpha=0.5,
-                zorder=9,  # Below sector boundary box (zorder=10)
-            )
-            axes[2].add_patch(rect)
+                    # Draw vertical bars for significant X positions within sector range
+                    for i, is_sig in enumerate(significant_bins_mask):
+                        if is_sig:
+                            # Map from sector-relative index to absolute X position
+                            x_idx = int(x_min_sector) + i
+                            rect = patches.Rectangle(
+                                (x_idx - 0.5, y_min - 0.5),
+                                1.0,  # Width of one bin
+                                y_max - y_min,  # Height of sector region
+                                linewidth=0,
+                                edgecolor="none",
+                                facecolor="orange",
+                                alpha=0.5,
+                                zorder=9,
+                            )
+                            axes[2].add_patch(rect)
+                except Exception as e:
+                    import warnings
+
+                    warnings.warn(
+                        f"Failed to highlight significant bins: {e}", stacklevel=2
+                    )
+
+        elif significant_bins_mask.ndim == 2:
+            # 2D mask: direct bin-wise significance
+            height, width = significant_bins_mask.shape
+            significant_x_columns = np.any(significant_bins_mask, axis=0)
+
+            # Get sector boundaries if available
+            try:
+                if correlation_sectors is not None and pos_header is not None:
+                    x_min, x_max, y_min, y_max = _get_sector_boundaries_in_bins(
+                        correlation_sectors,
+                        significant_bins_mask.shape,
+                        pos_header,
+                        bin_size,
+                    )
+                else:
+                    x_min, x_max, y_min, y_max = -0.5, width - 0.5, -0.5, height - 0.5
+            except Exception:
+                x_min, x_max, y_min, y_max = -0.5, width - 0.5, -0.5, height - 0.5
+
+            # Draw vertical bars for each significant X position
+            for x_idx in np.where(significant_x_columns)[0]:
+                rect = patches.Rectangle(
+                    (x_idx - 0.5, y_min - 0.5),
+                    1.0,
+                    y_max - y_min,
+                    linewidth=0,
+                    edgecolor="none",
+                    facecolor="orange",
+                    alpha=0.5,
+                    zorder=9,
+                )
+                axes[2].add_patch(rect)
     title_parts = [f"Unit {unit_id}"]
     if session_name:
         title_parts.append(f"Session {session_name}")
@@ -309,7 +376,93 @@ def plot_splitter_maps(
 
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.96)
     if subtitle:
-        fig.text(0.5, 0.90, subtitle, ha="center", fontsize=10)
+        if show_1d_panel:
+            fig.text(0.5, 0.92, subtitle, ha="center", fontsize=10)
+        else:
+            fig.text(0.5, 0.90, subtitle, ha="center", fontsize=10)
+
+    # Plot 1D profiles if available (sector-specific only)
+    if show_1d_panel:
+        ax_1d = axes[3]
+
+        # Create x-axis (bin positions within sector)
+        n_bins = len(left_rate_profile_1d)
+        x_bins = np.arange(n_bins)
+
+        # Plot left and right profiles
+        ax_1d.plot(
+            x_bins,
+            left_rate_profile_1d,
+            "b-",
+            linewidth=2,
+            label="Left trajectories",
+            alpha=0.8,
+        )
+        ax_1d.plot(
+            x_bins,
+            right_rate_profile_1d,
+            "r-",
+            linewidth=2,
+            label="Right trajectories",
+            alpha=0.8,
+        )
+
+        # Highlight significant bins with background shading
+        if significant_bins_mask is not None:
+            for i, is_sig in enumerate(significant_bins_mask):
+                if is_sig and i < n_bins:
+                    ax_1d.axvspan(i - 0.5, i + 0.5, color="orange", alpha=0.3, zorder=0)
+
+        # Set labels and formatting
+        sector_label = (
+            f" (sectors {correlation_sectors})" if correlation_sectors else ""
+        )
+        ax_1d.set_xlabel(f"Position along center stem{sector_label} (bin)", fontsize=11)
+        ax_1d.set_ylabel("Firing rate (Hz)", fontsize=11)
+        ax_1d.set_xlim(-0.5, n_bins - 0.5)
+        ax_1d.legend(loc="upper left", fontsize=9)
+        ax_1d.grid(True, alpha=0.3)
+        ax_1d.spines["top"].set_visible(False)
+
+        # Add p-values on secondary y-axis if available
+        if p_values_per_bin is not None and len(p_values_per_bin) > 0:
+            ax_pval = ax_1d.twinx()
+
+            # Plot p-values aligned with bins
+            x_pval = np.arange(len(p_values_per_bin))
+
+            # Plot p-values
+            ax_pval.plot(
+                x_pval,
+                p_values_per_bin,
+                "k--",
+                linewidth=1.5,
+                alpha=0.6,
+                label="p-value",
+                marker="o",
+                markersize=4,
+            )
+
+            # Add significance threshold line
+            ax_pval.axhline(
+                0.05,
+                color="red",
+                linestyle=":",
+                linewidth=1,
+                alpha=0.5,
+                label="p = 0.05",
+            )
+
+            ax_pval.set_ylabel("p-value", fontsize=11, color="k")
+            ax_pval.tick_params(axis="y", labelcolor="k")
+            ax_pval.set_ylim(-0.05, 1.05)
+            ax_pval.spines["top"].set_visible(False)
+
+            # Add legend for p-values
+            ax_pval.legend(loc="upper right", fontsize=9)
+
+            # Invert y-axis so small p-values are at top
+            ax_pval.invert_yaxis()
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")

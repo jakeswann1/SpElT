@@ -42,6 +42,10 @@ def get_sector_x_bins(
     x_extent = pos_header["max_x"] - pos_header["min_x"]
     sector_width = x_extent / n_cols
 
+    # Convert bin size from cm to pixels
+    scaled_ppm = pos_header.get("scaled_ppm", 400)
+    bin_length = bin_size * scaled_ppm / 100  # cm -> m -> pixels
+
     # Find X range of sectors
     sector_cols = [(s - 1) % n_cols for s in sectors]  # 0-indexed columns
     min_col = min(sector_cols)
@@ -52,8 +56,8 @@ def get_sector_x_bins(
     x_max = pos_header["min_x"] + (max_col + 1) * sector_width
 
     # Convert to bin indices
-    x_min_bin = int(np.floor((x_min - pos_header["min_x"]) / bin_size))
-    x_max_bin = int(np.ceil((x_max - pos_header["min_x"]) / bin_size)) - 1
+    x_min_bin = int(np.floor((x_min - pos_header["min_x"]) / bin_length))
+    x_max_bin = int(np.ceil((x_max - pos_header["min_x"]) / bin_length)) - 1
 
     return x_min_bin, x_max_bin
 
@@ -115,15 +119,102 @@ def check_minimum_activity(
     return choices_with_spikes >= min_choices
 
 
+def precompute_window_position_bins(
+    windows: list[tuple], pos_bin_data: dict[int, dict]
+) -> tuple[list[np.ndarray], float]:
+    """
+    Pre-compute filtered position bins (X indices only) for each window.
+
+    This extracts and collapses position data for each window individually,
+    but does NOT create synthetic timestamps yet. Timestamps must be created
+    after concatenating windows to ensure monotonicity.
+
+    Parameters
+    ----------
+    windows : list of tuples
+        List of (trial_idx, start_time, end_time) tuples
+    pos_bin_data : dict
+        {trial_idx: bin_data_dict}
+
+    Returns
+    -------
+    x_bins_per_window : list of np.ndarray
+        List of X position bin indices for each window
+    pos_sampling_rate : float
+        Position sampling rate (Hz)
+    """
+    x_bins_per_window = []
+    pos_sampling_rate = None
+
+    for trial_idx, start_time, end_time in windows:
+        if trial_idx not in pos_bin_data:
+            x_bins_per_window.append(np.array([]))
+            continue
+
+        bin_data = pos_bin_data[trial_idx]
+        pos_bin_idx = bin_data["pos_bin_idx"]
+        timestamps = bin_data["pos_sample_times"]
+
+        # Extract X bins (handle both tuple and array formats)
+        if isinstance(pos_bin_idx, tuple):
+            # Tuple format: (x_bins, y_bins)
+            x_bins = pos_bin_idx[0]
+        elif isinstance(pos_bin_idx, np.ndarray):
+            if pos_bin_idx.ndim == 1:
+                # Already 1D
+                x_bins = pos_bin_idx
+            elif pos_bin_idx.shape[1] == 2:
+                # 2D array format: columns are [y_idx, x_idx]
+                x_bins = pos_bin_idx[:, 1]  # Column 1 is X!
+            else:
+                raise ValueError(f"Unexpected pos_bin_idx shape: {pos_bin_idx.shape}")
+        else:
+            raise ValueError(f"Unexpected pos_bin_idx type: {type(pos_bin_idx)}")
+
+        # Find samples within time window
+        mask = (timestamps >= start_time) & (timestamps <= end_time)
+
+        if not np.any(mask):
+            x_bins_per_window.append(np.array([]))
+            continue
+
+        # Store just the X bins for this window
+        x_bins_per_window.append(x_bins[mask])
+
+        if pos_sampling_rate is None:
+            pos_sampling_rate = bin_data["pos_sampling_rate"]
+
+    if pos_sampling_rate is None:
+        pos_sampling_rate = 50.0  # Default fallback
+
+    return x_bins_per_window, pos_sampling_rate
+
+
 def compute_shuffle_iteration(
     all_windows: list[tuple],
     n_left: int,
     trial_spike_trains: dict[int, dict],
-    pos_bin_data: dict[int, dict],
+    precomputed_x_bins: list[np.ndarray],
+    pos_sampling_rate: float,
     unit_ids: list,
 ) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray], np.ndarray, np.ndarray]:
     """
-    Compute one shuffle iteration with 1D processing.
+    Compute one shuffle iteration with 1D processing using pre-computed position bins.
+
+    Parameters
+    ----------
+    all_windows : list of tuples
+        All trajectory windows (left + right)
+    n_left : int
+        Number of left trajectory windows
+    trial_spike_trains : dict
+        {trial_idx: {unit_id: spike_times}}
+    precomputed_x_bins : list of np.ndarray
+        Pre-computed X position bins for each window in all_windows
+    pos_sampling_rate : float
+        Position sampling rate (Hz)
+    unit_ids : list
+        List of unit IDs to process
 
     Returns
     -------
@@ -133,10 +224,13 @@ def compute_shuffle_iteration(
     """
     # Randomly shuffle trajectory assignments
     shuffled_indices = np.random.permutation(len(all_windows))
-    shuffled_left_windows = [all_windows[i] for i in shuffled_indices[:n_left]]
-    shuffled_right_windows = [all_windows[i] for i in shuffled_indices[n_left:]]
+    shuffled_left_indices = shuffled_indices[:n_left]
+    shuffled_right_indices = shuffled_indices[n_left:]
 
-    # Filter spikes and position
+    shuffled_left_windows = [all_windows[i] for i in shuffled_left_indices]
+    shuffled_right_windows = [all_windows[i] for i in shuffled_right_indices]
+
+    # Filter spikes
     left_spikes, right_spikes = filter_spikes_by_windows_separate(
         shuffled_left_windows,
         shuffled_right_windows,
@@ -145,20 +239,33 @@ def compute_shuffle_iteration(
         align_to_synthetic_time=True,
     )
 
-    left_pos_bin_idx, left_pos_times, left_pos_rate = filter_position_by_windows(
-        shuffled_left_windows, pos_bin_data
-    )
-    right_pos_bin_idx, right_pos_times, right_pos_rate = filter_position_by_windows(
-        shuffled_right_windows, pos_bin_data
-    )
+    # Concatenate pre-computed position bins based on shuffled assignments
+    left_x_bins_list = [precomputed_x_bins[i] for i in shuffled_left_indices]
+    right_x_bins_list = [precomputed_x_bins[i] for i in shuffled_right_indices]
 
-    # Collapse to 1D
-    left_x_idx, left_times, left_rate = collapse_position_bins_to_x(
-        left_pos_bin_idx, left_pos_times, left_pos_rate
-    )
-    right_x_idx, right_times, right_rate = collapse_position_bins_to_x(
-        right_pos_bin_idx, right_pos_times, right_pos_rate
-    )
+    # Combine position bins and create synthetic times (after concatenation)
+    if left_x_bins_list and any(len(b) > 0 for b in left_x_bins_list):
+        left_x_idx = np.concatenate([b for b in left_x_bins_list if len(b) > 0])
+        # Create synthetic monotonic times after concatenation
+        dt = 1.0 / pos_sampling_rate if pos_sampling_rate > 0 else 0.02
+        left_times = np.arange(len(left_x_idx)) * dt
+        left_rate = pos_sampling_rate
+    else:
+        left_x_idx = np.array([])
+        left_times = np.array([])
+        left_rate = 0.0
+
+    # Combine position bins for right trajectories
+    if right_x_bins_list and any(len(b) > 0 for b in right_x_bins_list):
+        right_x_idx = np.concatenate([b for b in right_x_bins_list if len(b) > 0])
+        # Create synthetic monotonic times after concatenation
+        dt = 1.0 / pos_sampling_rate if pos_sampling_rate > 0 else 0.02
+        right_times = np.arange(len(right_x_idx)) * dt
+        right_rate = pos_sampling_rate
+    else:
+        right_x_idx = np.array([])
+        right_times = np.array([])
+        right_rate = 0.0
 
     # Generate 1D rate maps
     left_rate_maps, left_occupancy = make_1d_rate_maps(
@@ -308,18 +415,30 @@ def splitter_significance_1d(
     # Determine X bin range for correlation sectors
     x_min_bin, x_max_bin = get_sector_x_bins(pos_header, bin_size, correlation_sectors)
 
-    # Step 2: Run shuffles in parallel
+    # Step 2: Pre-compute position bins for all windows (optimization)
+    print("    Pre-computing position bins for all windows...")
     all_windows = left_windows + right_windows
     n_left = len(left_windows)
 
+    precomputed_x_bins, pos_rate = precompute_window_position_bins(
+        all_windows, pos_bin_data
+    )
+
+    # Step 3: Run shuffles in parallel
+    print("    Running shuffles...")
     shuffle_results = Parallel(n_jobs=n_jobs)(
         delayed(compute_shuffle_iteration)(
-            all_windows, n_left, trial_spike_trains, pos_bin_data, unit_ids
+            all_windows,
+            n_left,
+            trial_spike_trains,
+            precomputed_x_bins,
+            pos_rate,
+            unit_ids,
         )
         for _ in range(n_shuffles)
     )
 
-    # Step 3: Calculate significance for each unit
+    # Step 4: Calculate significance for each unit
     print("    Calculating X-bin-wise significance...")
 
     results = {
@@ -364,19 +483,19 @@ def splitter_significance_1d(
             results["significant_bins_mask"][unit_id] = None
             continue
 
-        # Get real rate profiles
+        # Get full rate profiles
         left_profile = left_rate_maps_real[unit_id]
         right_profile = right_rate_maps_real[unit_id]
-        diff_profile = left_profile - right_profile
 
-        results["left_rate_profile"][unit_id] = left_profile
-        results["right_rate_profile"][unit_id] = right_profile
-        results["diff_profile"][unit_id] = diff_profile
-
-        # Extract sector bins
+        # Extract sector bins only
         left_sector = left_profile[x_min_bin : x_max_bin + 1]
         right_sector = right_profile[x_min_bin : x_max_bin + 1]
         diff_sector = left_sector - right_sector
+
+        # Store only the sector-specific profiles (not full profiles)
+        results["left_rate_profile"][unit_id] = left_sector
+        results["right_rate_profile"][unit_id] = right_sector
+        results["diff_profile"][unit_id] = diff_sector
 
         # Dual occupancy: bins with data in both trajectories
         dual_occ = (~np.isnan(left_sector)) & (~np.isnan(right_sector))

@@ -7,8 +7,11 @@ from spelt.analysis.t_maze.assign_sectors import assign_sectors
 
 
 def identify_choice_trajectories_from_sectors(
-    sectors: np.ndarray, pos_timestamps: np.ndarray, trial_idx: int = 0
-) -> tuple[list[tuple], list[tuple]]:
+    sectors: np.ndarray,
+    pos_timestamps: np.ndarray,
+    trial_idx: int = 0,
+    validate_spatial_exclusivity: bool = True,
+) -> tuple[list[tuple], list[tuple], dict]:
     """
     Identify left and right choice trajectories from sector assignments.
 
@@ -23,6 +26,11 @@ def identify_choice_trajectories_from_sectors(
         Timestamps corresponding to each position sample (in seconds)
     trial_idx : int, optional
         Trial index to include in output tuples (default: 0)
+    validate_spatial_exclusivity : bool, optional
+        If True, reject trajectories where animal enters opposite arm.
+        For left trajectories: reject if sectors 9-11 appear.
+        For right trajectories: reject if sectors 1-3 appear.
+        Default: True (validation enabled).
 
     Returns
     -------
@@ -30,6 +38,12 @@ def identify_choice_trajectories_from_sectors(
         Each tuple is (trial_idx, start_time, end_time) for left-choice trajectories
     right_windows : list of tuples
         Each tuple is (trial_idx, start_time, end_time) for right-choice trajectories
+    rejection_stats : dict
+        Statistics about rejected trajectories:
+        - 'n_left_rejected': number of left trajectories rejected
+        - 'n_right_rejected': number of right trajectories rejected
+        - 'n_left_accepted': number of left trajectories accepted
+        - 'n_right_accepted': number of right trajectories accepted
 
     Notes
     -----
@@ -47,7 +61,11 @@ def identify_choice_trajectories_from_sectors(
     center (8) → left (1) or right (9) → back to center (8)
     """
     # Use shared logic to find choice cycles
-    cycles = find_choice_cycles(sectors, include_incomplete=False)
+    cycles, rejection_stats = find_choice_cycles(
+        sectors,
+        include_incomplete=False,
+        validate_spatial_exclusivity=validate_spatial_exclusivity,
+    )
 
     # Convert cycles to time windows
     left_windows = []
@@ -71,12 +89,15 @@ def identify_choice_trajectories_from_sectors(
                 )
             )
 
-    return left_windows, right_windows
+    return left_windows, right_windows, rejection_stats
 
 
 def identify_choice_trajectories_single_trial(
-    pos_data: dict, trial_idx: int, pos_header: dict | None = None
-) -> tuple[list[tuple], list[tuple]]:
+    pos_data: dict,
+    trial_idx: int,
+    pos_header: dict | None = None,
+    validate_spatial_exclusivity: bool = True,
+) -> tuple[list[tuple], list[tuple], dict]:
     """
     Identify choice trajectories from position data for a single trial.
 
@@ -92,6 +113,9 @@ def identify_choice_trajectories_single_trial(
     pos_header : dict, optional
         Position header with min/max x/y boundaries. If None, will be
         calculated from position data.
+    validate_spatial_exclusivity : bool, optional
+        If True, reject trajectories where animal enters opposite arm.
+        Default: True (validation enabled).
 
     Returns
     -------
@@ -99,6 +123,8 @@ def identify_choice_trajectories_single_trial(
         Each tuple is (trial_idx, start_time, end_time) for left-choice trajectories
     right_windows : list of tuples
         Each tuple is (trial_idx, start_time, end_time) for right-choice trajectories
+    rejection_stats : dict
+        Statistics about rejected trajectories
     """
     xy_pos = pos_data["xy_position"]
     pos_timestamps = xy_pos.columns.to_numpy()
@@ -107,14 +133,17 @@ def identify_choice_trajectories_single_trial(
     sectors = assign_sectors(xy_pos.T, pos_header=pos_header)
 
     # Identify trajectories
-    return identify_choice_trajectories_from_sectors(sectors, pos_timestamps, trial_idx)
+    return identify_choice_trajectories_from_sectors(
+        sectors, pos_timestamps, trial_idx, validate_spatial_exclusivity
+    )
 
 
 def identify_choice_trajectories_batch(
     pos_data_list: list[dict],
     trial_indices: list[int],
     pos_headers: list[dict | None] | None = None,
-) -> tuple[list[tuple], list[tuple]]:
+    validate_spatial_exclusivity: bool = True,
+) -> tuple[list[tuple], list[tuple], dict]:
     """
     Identify choice trajectories across multiple trials.
 
@@ -127,6 +156,9 @@ def identify_choice_trajectories_batch(
     pos_headers : list of dict or None, optional
         List of position headers (one per trial). If None, will calculate
         from position data for each trial.
+    validate_spatial_exclusivity : bool, optional
+        If True, reject trajectories where animal enters opposite arm.
+        Default: True (validation enabled).
 
     Returns
     -------
@@ -136,9 +168,19 @@ def identify_choice_trajectories_batch(
     right_windows : list of tuples
         All right-choice trajectory windows pooled across trials
         Each tuple is (trial_idx, start_time, end_time)
+    rejection_stats : dict
+        Cumulative statistics about rejected trajectories across all trials
     """
     all_left_windows = []
     all_right_windows = []
+
+    # Initialize cumulative rejection statistics
+    cumulative_rejection_stats = {
+        "n_left_rejected": 0,
+        "n_right_rejected": 0,
+        "n_left_accepted": 0,
+        "n_right_accepted": 0,
+    }
 
     if pos_headers is None:
         pos_headers = [None] * len(pos_data_list)
@@ -149,19 +191,25 @@ def identify_choice_trajectories_batch(
         if pos_data is None:
             continue
 
-        left_wins, right_wins = identify_choice_trajectories_single_trial(
-            pos_data, trial_idx, pos_header
+        left_wins, right_wins, rejection_stats = (
+            identify_choice_trajectories_single_trial(
+                pos_data, trial_idx, pos_header, validate_spatial_exclusivity
+            )
         )
 
         all_left_windows.extend(left_wins)
         all_right_windows.extend(right_wins)
 
-    return all_left_windows, all_right_windows
+        # Accumulate rejection statistics
+        for key in cumulative_rejection_stats:
+            cumulative_rejection_stats[key] += rejection_stats[key]
+
+    return all_left_windows, all_right_windows, cumulative_rejection_stats
 
 
 def identify_choice_trajectories_from_ephys(
-    obj, trial_list: list[int] | None = None
-) -> tuple[list[tuple], list[tuple]]:
+    obj, trial_list: list[int] | None = None, validate_spatial_exclusivity: bool = True
+) -> tuple[list[tuple], list[tuple], dict]:
     """
     Identify choice trajectories from an ephys object.
 
@@ -174,6 +222,9 @@ def identify_choice_trajectories_from_ephys(
     trial_list : list of int, optional
         List of trial indices to process. If None, processes all trials
         with 't-maze' in their name.
+    validate_spatial_exclusivity : bool, optional
+        If True, reject trajectories where animal enters opposite arm.
+        Default: True (validation enabled).
 
     Returns
     -------
@@ -183,6 +234,8 @@ def identify_choice_trajectories_from_ephys(
     right_windows : list of tuples
         All right-choice trajectory windows pooled across trials
         Each tuple is (trial_idx, start_time, end_time)
+    rejection_stats : dict
+        Cumulative statistics about rejected trajectories across all trials
 
     Notes
     -----
@@ -211,5 +264,5 @@ def identify_choice_trajectories_from_ephys(
 
     # Identify trajectories
     return identify_choice_trajectories_batch(
-        pos_data_list, valid_trial_indices, pos_headers
+        pos_data_list, valid_trial_indices, pos_headers, validate_spatial_exclusivity
     )

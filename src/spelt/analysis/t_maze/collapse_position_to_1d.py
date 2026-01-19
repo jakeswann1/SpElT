@@ -112,23 +112,45 @@ def make_1d_rate_maps(
         if not np.isnan(x_idx):
             occupancy[int(x_idx)] += dt
 
-    # Compute spike counts per X bin for each unit
+    # Compute spike counts per X bin for each unit (vectorized)
     rate_maps = {}
+    time_tolerance = 1.0 / pos_sampling_rate
 
     for unit_id, spike_times in spike_data.items():
-        spike_counts = np.zeros(max_x_bins)
+        if len(spike_times) == 0:
+            rate_map = np.full(max_x_bins, np.nan)
+            visited = occupancy > 0
+            rate_map[visited] = 0.0
+            rate_maps[unit_id] = rate_map
+            continue
 
-        # For each spike, find which X bin it occurred in
-        for spike_time in spike_times:
-            # Find closest position sample
-            time_diffs = np.abs(pos_sample_times - spike_time)
-            closest_idx = np.argmin(time_diffs)
+        # Use searchsorted to find insertion points for all spikes at once
+        # This gives us the index where each spike would be inserted to maintain order
+        insert_idx = np.searchsorted(pos_sample_times, spike_times)
 
-            # Only count if spike is close enough to position sample
-            if time_diffs[closest_idx] < (1.0 / pos_sampling_rate):
-                x_idx = pos_x_idx[closest_idx]
-                if not np.isnan(x_idx):
-                    spike_counts[int(x_idx)] += 1
+        # Clip to valid range
+        insert_idx = np.clip(insert_idx, 0, len(pos_sample_times) - 1)
+
+        # Check distances to nearest position samples
+        time_diffs = np.abs(pos_sample_times[insert_idx] - spike_times)
+
+        # Also check previous index in case it's closer
+        prev_idx = np.clip(insert_idx - 1, 0, len(pos_sample_times) - 1)
+        prev_diffs = np.abs(pos_sample_times[prev_idx] - spike_times)
+
+        # Use the closest index (prefer earlier index in case of ties, matching argmin)
+        use_prev = prev_diffs <= time_diffs
+        closest_idx = np.where(use_prev, prev_idx, insert_idx)
+        min_diffs = np.where(use_prev, prev_diffs, time_diffs)
+
+        # Filter by time tolerance and valid X indices
+        valid_mask = (min_diffs < time_tolerance) & (~np.isnan(pos_x_idx[closest_idx]))
+        valid_x_idx = pos_x_idx[closest_idx[valid_mask]]
+
+        # Count spikes per bin using bincount
+        spike_counts = np.bincount(valid_x_idx.astype(int), minlength=max_x_bins)[
+            :max_x_bins
+        ]
 
         # Compute rate map (Hz)
         rate_map = np.full(max_x_bins, np.nan)
