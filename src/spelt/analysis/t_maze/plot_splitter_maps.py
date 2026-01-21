@@ -184,22 +184,25 @@ def plot_splitter_maps(
     )
 
     if show_1d_panel:
-        # Two rows: top row for 2D maps, bottom row for 1D profile
+        # 2x2 grid: top row = left/right, bottom row = difference/1D
         gs = GridSpec(
             2,
-            3,
+            2,
             figure=fig,
-            height_ratios=[2, 1],
-            hspace=0.25,
-            wspace=0.3,
-            left=0.04,
-            right=0.96,
+            hspace=0.20,
+            wspace=0.25,
+            left=0.06,
+            right=0.94,
             top=0.90,
             bottom=0.06,
         )
-        axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
-        ax_1d = fig.add_subplot(gs[1, :])  # 1D panel spans all columns
-        axes.append(ax_1d)
+        # Top row: left (0,0) and right (0,1) trajectories
+        ax_left = fig.add_subplot(gs[0, 0])
+        ax_right = fig.add_subplot(gs[0, 1])
+        # Bottom row: difference (1,0) and 1D profile (1,1)
+        ax_diff = fig.add_subplot(gs[1, 0])
+        ax_1d = fig.add_subplot(gs[1, 1])
+        axes = [ax_left, ax_right, ax_diff, ax_1d]
     else:
         # Original layout: single row with 3 panels
         gs = GridSpec(
@@ -216,6 +219,7 @@ def plot_splitter_maps(
     )
     axes[0].set_title("Left-choice trajectories", fontsize=11, fontweight="bold", pad=5)
     axes[0].axis("off")
+    plt.colorbar(_, ax=axes[0], fraction=0.046, pad=0.04, label="Hz")
 
     # Plot right-choice map
     im2 = axes[1].imshow(
@@ -225,7 +229,7 @@ def plot_splitter_maps(
         "Right-choice trajectories", fontsize=11, fontweight="bold", pad=5
     )
     axes[1].axis("off")
-    plt.colorbar(im2, ax=axes[1], fraction=0.031, pad=0.04, label="Hz")
+    plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04, label="Hz")
 
     # Plot difference map (left - right)
     diff_map = left_rate_map - right_rate_map
@@ -240,7 +244,21 @@ def plot_splitter_maps(
     )
     axes[2].set_title("Difference (L - R)", fontsize=11, fontweight="bold", pad=5)
     axes[2].axis("off")
-    plt.colorbar(im3, ax=axes[2], fraction=0.031, pad=0.04, label="Hz")
+    plt.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.04, label="Hz")
+
+    # Add light grey border around rate map edges
+    height, width = left_rate_map.shape
+    for ax in axes[:3]:  # Only add border to the three 2D maps
+        border = patches.Rectangle(
+            (-0.5, -0.5),
+            width,
+            height,
+            linewidth=3,
+            edgecolor="lightgrey",
+            facecolor="none",
+            zorder=10,
+        )
+        ax.add_patch(border)
 
     # Overlay sector boundaries on all three plots (if provided)
     if correlation_sectors is not None and pos_header is not None:
