@@ -4,6 +4,7 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.gridspec import GridSpec
+from scipy.ndimage import gaussian_filter1d
 
 
 def _get_sector_boundaries_in_bins(
@@ -190,12 +191,12 @@ def plot_splitter_maps(
             3,
             figure=fig,
             height_ratios=[2, 1],
-            hspace=0.35,
-            wspace=0.4,
-            left=0.05,
-            right=0.95,
-            top=0.88,
-            bottom=0.08,
+            hspace=0.25,
+            wspace=0.3,
+            left=0.04,
+            right=0.96,
+            top=0.90,
+            bottom=0.06,
         )
         axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
         ax_1d = fig.add_subplot(gs[1, :])  # 1D panel spans all columns
@@ -203,7 +204,7 @@ def plot_splitter_maps(
     else:
         # Original layout: single row with 3 panels
         gs = GridSpec(
-            1, 3, figure=fig, wspace=0.4, left=0.05, right=0.95, top=0.85, bottom=0.05
+            1, 3, figure=fig, wspace=0.3, left=0.04, right=0.96, top=0.88, bottom=0.04
         )
         axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
 
@@ -225,7 +226,7 @@ def plot_splitter_maps(
         "Right-choice trajectories", fontsize=11, fontweight="bold", pad=5
     )
     axes[1].axis("off")
-    plt.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04, label="Hz")
+    plt.colorbar(im2, ax=axes[1], fraction=0.031, pad=0.04, label="Hz")
 
     # Plot difference map (left - right)
     diff_map = left_rate_map - right_rate_map
@@ -240,7 +241,7 @@ def plot_splitter_maps(
     )
     axes[2].set_title("Difference (L - R)", fontsize=11, fontweight="bold", pad=5)
     axes[2].axis("off")
-    plt.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.04, label="Hz")
+    plt.colorbar(im3, ax=axes[2], fraction=0.031, pad=0.04, label="Hz")
 
     # Overlay sector boundaries on all three plots (if provided)
     if correlation_sectors is not None and pos_header is not None:
@@ -365,7 +366,8 @@ def plot_splitter_maps(
     if is_significant_splitter is not None:
         if is_significant_splitter:
             sig_text = (
-                f"SIGNIFICANT SPLITTER ({n_significant_bins} X positions, p < 0.05)"
+                f"SIGNIFICANT SPLITTER "
+                f"({n_significant_bins} consecutive bins, p < 0.05)"
             )
             subtitle_parts.append(sig_text)
         else:
@@ -373,12 +375,12 @@ def plot_splitter_maps(
 
     subtitle = " | ".join(subtitle_parts)
 
-    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.96)
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
     if subtitle:
         if show_1d_panel:
-            fig.text(0.5, 0.92, subtitle, ha="center", fontsize=10)
+            fig.text(0.5, 0.93, subtitle, ha="center", fontsize=10)
         else:
-            fig.text(0.5, 0.90, subtitle, ha="center", fontsize=10)
+            fig.text(0.5, 0.91, subtitle, ha="center", fontsize=10)
 
     # Plot 1D profiles if available (sector-specific only)
     if show_1d_panel:
@@ -388,10 +390,19 @@ def plot_splitter_maps(
         n_bins = len(left_rate_profile_1d)
         x_bins = np.arange(n_bins)
 
-        # Plot left and right profiles
+        # Apply Gaussian smoothing to profiles (sigma=1.0)
+        # Use 'nearest' mode to handle edges properly
+        left_smoothed = gaussian_filter1d(
+            left_rate_profile_1d, sigma=1.0, mode="nearest"
+        )
+        right_smoothed = gaussian_filter1d(
+            right_rate_profile_1d, sigma=1.0, mode="nearest"
+        )
+
+        # Plot left and right profiles (smoothed)
         ax_1d.plot(
             x_bins,
-            left_rate_profile_1d,
+            left_smoothed,
             "b-",
             linewidth=2,
             label="Left trajectories",
@@ -399,7 +410,7 @@ def plot_splitter_maps(
         )
         ax_1d.plot(
             x_bins,
-            right_rate_profile_1d,
+            right_smoothed,
             "r-",
             linewidth=2,
             label="Right trajectories",
@@ -422,46 +433,7 @@ def plot_splitter_maps(
         ax_1d.legend(loc="upper left", fontsize=9)
         ax_1d.grid(True, alpha=0.3)
         ax_1d.spines["top"].set_visible(False)
-
-        # Add p-values on secondary y-axis if available
-        if p_values_per_bin is not None and len(p_values_per_bin) > 0:
-            ax_pval = ax_1d.twinx()
-
-            # Plot p-values aligned with bins
-            x_pval = np.arange(len(p_values_per_bin))
-
-            # Plot p-values
-            ax_pval.plot(
-                x_pval,
-                p_values_per_bin,
-                "k--",
-                linewidth=1.5,
-                alpha=0.6,
-                label="p-value",
-                marker="o",
-                markersize=4,
-            )
-
-            # Add significance threshold line
-            ax_pval.axhline(
-                0.05,
-                color="red",
-                linestyle=":",
-                linewidth=1,
-                alpha=0.5,
-                label="p = 0.05",
-            )
-
-            ax_pval.set_ylabel("p-value", fontsize=11, color="k")
-            ax_pval.tick_params(axis="y", labelcolor="k")
-            ax_pval.set_ylim(-0.05, 1.05)
-            ax_pval.spines["top"].set_visible(False)
-
-            # Add legend for p-values
-            ax_pval.legend(loc="upper right", fontsize=9)
-
-            # Invert y-axis so small p-values are at top
-            ax_pval.invert_yaxis()
+        ax_1d.spines["right"].set_visible(False)
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -591,7 +563,7 @@ def plot_splitter_population(
         plt.tight_layout(rect=[0, 0, 1, 0.97])
 
         if save_prefix:
-            save_path = f"{save_prefix}_page{fig_idx + 1}.png"
+            save_path = f"{save_prefix}_page{fig_idx + 1}.svg"
             fig.savefig(save_path, dpi=150, bbox_inches="tight")
 
         figures.append((fig, axes))

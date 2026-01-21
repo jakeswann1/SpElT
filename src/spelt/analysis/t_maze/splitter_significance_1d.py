@@ -62,6 +62,48 @@ def get_sector_x_bins(
     return x_min_bin, x_max_bin
 
 
+def find_max_consecutive_bins(mask: np.ndarray) -> int:
+    """
+    Find the maximum number of consecutive True values in a boolean array.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        Boolean array
+
+    Returns
+    -------
+    int
+        Maximum number of consecutive True values
+
+    Examples
+    --------
+    >>> find_max_consecutive_bins(np.array([True, True, False, True, True, True]))
+    3
+    >>> find_max_consecutive_bins(np.array([False, False, False]))
+    0
+    >>> find_max_consecutive_bins(np.array([True, False, True, False, True]))
+    1
+    """
+    if len(mask) == 0 or not np.any(mask):
+        return 0
+
+    # Find transitions (where values change)
+    # Pad with False on both sides to handle edges
+    padded = np.concatenate(([False], mask, [False]))
+    diff = np.diff(padded.astype(int))
+
+    # Start of runs: where diff == 1 (False -> True)
+    # End of runs: where diff == -1 (True -> False)
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
+
+    # Calculate run lengths
+    run_lengths = ends - starts
+
+    return int(np.max(run_lengths)) if len(run_lengths) > 0 else 0
+
+
 def check_minimum_activity(
     left_windows: list[tuple],
     right_windows: list[tuple],
@@ -370,7 +412,7 @@ def splitter_significance_1d(
     n_shuffles : int
         Number of shuffle iterations (default: 1000)
     min_significant_bins : int
-        Minimum number of significant X bins to be classified as splitter
+        Minimum number of consecutive significant X bins to be classified as splitter
     min_activity_choices : int
         Minimum number of choices where unit must fire
     n_jobs : int
@@ -382,6 +424,7 @@ def splitter_significance_1d(
         Dictionary with keys:
         - 'is_splitter': {unit_id: bool}
         - 'n_significant_bins': {unit_id: int}
+            Max number of consecutive significant bins
         - 'p_values_per_bin': {unit_id: np.ndarray} - 1D p-values per X bin
         - 'has_minimum_activity': {unit_id: bool}
         - 'left_rate_profile': {unit_id: np.ndarray} - 1D left rate profile
@@ -633,17 +676,19 @@ def splitter_significance_1d(
 
         # Significant bins: p < 0.05 AND has dual occupancy
         significant_bins = (p_values < 0.05) & dual_occ
-        n_sig_bins = np.sum(significant_bins)
+
+        # Count maximum consecutive significant bins (not total)
+        max_consecutive_bins = find_max_consecutive_bins(significant_bins)
 
         results["p_values_per_bin"][unit_id] = p_values
-        results["n_significant_bins"][unit_id] = n_sig_bins
-        results["is_splitter"][unit_id] = n_sig_bins >= min_significant_bins
+        results["n_significant_bins"][unit_id] = max_consecutive_bins
+        results["is_splitter"][unit_id] = max_consecutive_bins >= min_significant_bins
         results["significant_bins_mask"][unit_id] = significant_bins
 
     n_splitters = sum(results["is_splitter"].values())
     print(f"    Found {n_splitters}/{len(unit_ids)} splitter cells")
     print(
-        f"    (at least {min_significant_bins} X bins with p < 0.05 "
+        f"    (at least {min_significant_bins} consecutive X bins with p < 0.05 "
         f"in sectors {correlation_sectors})"
     )
 
