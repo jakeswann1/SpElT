@@ -4,7 +4,6 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.gridspec import GridSpec
-from scipy.ndimage import gaussian_filter1d
 
 
 def _get_sector_boundaries_in_bins(
@@ -390,19 +389,10 @@ def plot_splitter_maps(
         n_bins = len(left_rate_profile_1d)
         x_bins = np.arange(n_bins)
 
-        # Apply Gaussian smoothing to profiles (sigma=1.0)
-        # Use 'nearest' mode to handle edges properly
-        left_smoothed = gaussian_filter1d(
-            left_rate_profile_1d, sigma=1.0, mode="nearest"
-        )
-        right_smoothed = gaussian_filter1d(
-            right_rate_profile_1d, sigma=1.0, mode="nearest"
-        )
-
-        # Plot left and right profiles (smoothed)
+        # Plot left and right profiles (pre-smoothed from significance testing)
         ax_1d.plot(
             x_bins,
-            left_smoothed,
+            left_rate_profile_1d,
             "b-",
             linewidth=2,
             label="Left trajectories",
@@ -410,7 +400,7 @@ def plot_splitter_maps(
         )
         ax_1d.plot(
             x_bins,
-            right_smoothed,
+            right_rate_profile_1d,
             "r-",
             linewidth=2,
             label="Right trajectories",

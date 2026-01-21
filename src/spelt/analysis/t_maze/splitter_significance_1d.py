@@ -2,6 +2,7 @@
 
 import numpy as np
 from joblib import Parallel, delayed
+from scipy.ndimage import gaussian_filter1d
 
 from spelt.analysis.t_maze.collapse_position_to_1d import (
     collapse_position_bins_to_x,
@@ -614,18 +615,41 @@ def splitter_significance_1d(
         left_profile = left_rate_maps_real[unit_id]
         right_profile = right_rate_maps_real[unit_id]
 
-        # Extract sector bins only
-        left_sector = left_profile[x_min_bin : x_max_bin + 1]
-        right_sector = right_profile[x_min_bin : x_max_bin + 1]
-        diff_sector = left_sector - right_sector
-
-        # Store only the sector-specific profiles (not full profiles)
-        results["left_rate_profile"][unit_id] = left_sector
-        results["right_rate_profile"][unit_id] = right_sector
-        results["diff_profile"][unit_id] = diff_sector
+        # Extract sector bins (UNSMOOTHED for significance testing)
+        left_sector_raw = left_profile[x_min_bin : x_max_bin + 1]
+        right_sector_raw = right_profile[x_min_bin : x_max_bin + 1]
+        diff_sector = left_sector_raw - right_sector_raw
 
         # Dual occupancy: bins with data in both trajectories
-        dual_occ = (~np.isnan(left_sector)) & (~np.isnan(right_sector))
+        dual_occ = (~np.isnan(left_sector_raw)) & (~np.isnan(right_sector_raw))
+
+        # For display purposes, create smoothed versions using neighboring bins
+        profile_length = len(left_profile)
+        pad_bins = 3  # Use 3 bins on each side for smoothing context
+
+        # Calculate extended range with bounds checking
+        x_start_extended = max(0, x_min_bin - pad_bins)
+        x_end_extended = min(profile_length, x_max_bin + 1 + pad_bins)
+
+        # Extract extended region
+        left_extended = left_profile[x_start_extended:x_end_extended]
+        right_extended = right_profile[x_start_extended:x_end_extended]
+
+        # Apply Gaussian smoothing to extended region
+        left_smoothed = gaussian_filter1d(left_extended, sigma=1.0, mode="nearest")
+        right_smoothed = gaussian_filter1d(right_extended, sigma=1.0, mode="nearest")
+
+        # Extract just the sector portion from smoothed profiles
+        offset_start = x_min_bin - x_start_extended
+        offset_end = offset_start + (x_max_bin - x_min_bin + 1)
+
+        left_sector_smooth = left_smoothed[offset_start:offset_end]
+        right_sector_smooth = right_smoothed[offset_start:offset_end]
+
+        # Store smoothed sector-specific profiles for plotting
+        results["left_rate_profile"][unit_id] = left_sector_smooth
+        results["right_rate_profile"][unit_id] = right_sector_smooth
+        results["diff_profile"][unit_id] = left_sector_smooth - right_sector_smooth
 
         # Collect shuffled profiles for this unit
         shuffled_diffs_sector = []
