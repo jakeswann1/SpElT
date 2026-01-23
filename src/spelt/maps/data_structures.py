@@ -140,7 +140,12 @@ class TrialData:
             p_values = []
             for trial in trial_data_list:
                 if cluster in trial.p_values:
-                    p_values.append(trial.p_values[cluster])
+                    p_val = trial.p_values[cluster]
+                    # NaN values (insufficient spikes) are treated as not significant
+                    if np.isnan(p_val):
+                        p_values.append(1.0)
+                    else:
+                        p_values.append(p_val)
                 else:
                     p_values.append(1.0)  # Not present = not significant
 

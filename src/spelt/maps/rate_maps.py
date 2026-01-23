@@ -318,7 +318,7 @@ def speed_filter_spikes_from_obj(
     obj,
     trial_list: int | list[int] | None = None,
     unit_ids: list | None = None,
-    speed_lower_bound: float = 2.5,
+    speed_lower_bound: float = 1.5,
     speed_upper_bound: float = 400.0,
 ) -> dict:
     """
@@ -336,7 +336,7 @@ def speed_filter_spikes_from_obj(
     unit_ids : list or None
         Unit IDs to filter. If None, uses all available units
     speed_lower_bound : float
-        Minimum speed threshold (cm/s). Default: 2.5
+        Minimum speed threshold (cm/s). Default: 1.5
     speed_upper_bound : float
         Maximum speed threshold (cm/s). Default: 400.0
 
@@ -409,7 +409,7 @@ def speed_filter_spikes_from_obj(
 
 
 def bin_pos_data_axona(
-    pos_data: dict, bin_length: float = 2.5, speed_threshold: float = 2.5
+    pos_data: dict, bin_length: float = 2.5, speed_threshold: float = 1.5
 ) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray, float]:
     """
     Unpacks the position data from the Axona format
@@ -422,7 +422,7 @@ def bin_pos_data_axona(
                  'header' key contains metadata inc. 'min_x', 'max_x', 'min_y', 'max_y'.
         bin_length: The length of each square bin in centimeters. Defaults to 2.5.
         speed_threshold: The speed threshold in cm/s for filtering the position data.
-                        Defaults to 2.5.
+                        Defaults to 1.5.
 
     Returns:
         tuple: A tuple containing:
@@ -487,7 +487,7 @@ def bin_pos_data_axona(
 
 
 def bin_pos_data_dlc(
-    pos_data: dict, bin_length: float = 2.5, speed_threshold: float = 2.5
+    pos_data: dict, bin_length: float = 2.5, speed_threshold: float = 1.5
 ) -> tuple[tuple[np.ndarray, np.ndarray], np.ndarray, float]:
     """
     Unpacks the position data from the DeepLabCut format for rate map generation,
@@ -498,7 +498,7 @@ def bin_pos_data_dlc(
                      and time as columns.
                      'header' key contains metadata.
     bin_length: The length of each square bin in centimeters. Default 2.5.
-    speed_threshold: The speed threshold (cm/s) for filtering position. Default 2.5.
+    speed_threshold: The speed threshold (cm/s) for filtering position. Default 1.5.
 
     """
 
@@ -586,6 +586,14 @@ def make_rate_maps_from_obj(
 
     # Make rate maps for all trials in an ephys object
     for trial in trial_list:
+        # FIX 1: Check if position data exists for this trial
+        if obj.pos_data[trial] is None:
+            print(
+                "Warning: No position data for trial"
+                f" {trial} ({obj.trial_list[trial]}), skipping"
+            )
+            continue
+
         current_trial_spikes = spike_data[trial]
 
         # Filter spikes for speed
@@ -593,7 +601,7 @@ def make_rate_maps_from_obj(
             current_trial_spikes,
             speed_data=obj.pos_data[trial]["speed"],
             position_sampling_rate=obj.pos_data[trial]["pos_sampling_rate"],
-            speed_lower_bound=2.5,  # 2.5 cm/s
+            speed_lower_bound=1.5,  # 1.5 cm/s (reduced from 2.5)
             speed_upper_bound=100,
         )  # 100 cm/s
 

@@ -67,6 +67,25 @@ def spatial_info(
     rate_maps_array = np.array(rate_maps_list)
     pos_maps_array = np.array(pos_maps_list)
 
+    # FIX 4: Validate array dimensions before processing
+    if rate_maps_array.size == 0:
+        raise ValueError(
+            "Rate maps array is empty - no valid cells or trials to process."
+        )
+
+    if rate_maps_array.ndim != 3:
+        raise ValueError(
+            f"Rate maps array should be 3D (n_cells, height, width)"
+            "This may indicate insufficient clusters. "
+            f"Array shape: {rate_maps_array.shape}"
+        )
+
+    if pos_maps_array.ndim != 3:
+        raise ValueError(
+            f"Position maps array should be 3D (n_cells, height, width)"
+            f"Array shape: {pos_maps_array.shape}"
+        )
+
     if rate_maps_array.shape != pos_maps_array.shape:
         raise ValueError("Shape mismatch between rate maps and position maps.")
 

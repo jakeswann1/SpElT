@@ -52,11 +52,18 @@ def spatial_significance(
 
     Returns
     -------
+    p_value : float
+        P-value from shuffle test (NaN if insufficient spikes)
+    bits_per_spike_z : float
+        Z-score of bits per spike (NaN if insufficient spikes)
     bits_per_spike_shuffled : array
-        Array of bits per spike for each shuffle
-    bits_per_sec_shuffled : array
-        Array of bits per second for each shuffle
+        Array of bits per spike for each shuffle (empty if insufficient spikes)
     """
+
+    # FIX 3: Validate spike count before attempting shuffle
+    # Cells with very few spikes (e.g., after speed filtering) cannot be reliably tested
+    if len(spike_times_real) < 10:
+        return np.nan, np.nan, np.array([])
 
     bits_per_spike_shuffled = np.zeros(n_shuffles)
     bits_per_sec_shuffled = np.zeros(n_shuffles)
