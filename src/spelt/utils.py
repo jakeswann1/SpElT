@@ -343,6 +343,7 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
         - 'trial_data': list of dicts, one per trial per cell with keys:
             - 'cluster_id': cluster/unit ID
             - 'trial_name': trial identifier
+            - 'trial_type': trial type (e.g., 'open-field', 't-maze')
             - 'spatial_info': spatial information for this specific trial
             - 'p_value': p-value for this specific trial
             - 'is_place_cell': boolean indicating if classified as place cell
@@ -388,6 +389,12 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
         spatial_sig_dict = np.load(spatial_sig_path, allow_pickle=True).item()
         place_cells = np.load(place_cells_path, allow_pickle=True)
 
+        # Create trial name to trial type mapping
+        trial_type_map = {}
+        for i, trial_name in enumerate(obj.trial_list):
+            trial_type = obj.trial_types[i]
+            trial_type_map[trial_name] = trial_type
+
         # Extract data for each cell (both trial-level and averaged)
         cell_data = []
         trial_data = []
@@ -424,10 +431,12 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
             # Store trial-level data (individual trials)
             for trial_name, si_value in zip(trial_names, si_values):
                 p_value = p_values_dict.get(trial_name, np.nan)
+                trial_type = trial_type_map.get(trial_name, "unknown")
                 trial_data.append(
                     {
                         "cluster_id": cluster_id,
                         "trial_name": trial_name,
+                        "trial_type": trial_type,
                         "spatial_info": si_value,
                         "p_value": p_value,
                         "is_place_cell": is_place_cell,

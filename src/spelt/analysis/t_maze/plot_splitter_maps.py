@@ -241,6 +241,7 @@ def plot_splitter_maps(
         vmin=-vmax_diff,
         vmax=vmax_diff,
         aspect="equal",
+        zorder=10,
     )
     axes[2].set_title("Difference (L - R)", fontsize=11, fontweight="bold", pad=5)
     axes[2].axis("off")
@@ -316,7 +317,7 @@ def plot_splitter_maps(
                                 edgecolor="none",
                                 facecolor="orange",
                                 alpha=0.5,
-                                zorder=9,
+                                zorder=5,
                             )
                             axes[2].add_patch(rect)
                 except Exception as e:
@@ -355,7 +356,7 @@ def plot_splitter_maps(
                     edgecolor="none",
                     facecolor="orange",
                     alpha=0.5,
-                    zorder=9,
+                    zorder=5,
                 )
                 axes[2].add_patch(rect)
     title_parts = [f"Unit {unit_id}"]
