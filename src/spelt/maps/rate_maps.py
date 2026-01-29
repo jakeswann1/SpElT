@@ -1,5 +1,3 @@
-import textwrap
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -165,13 +163,11 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
     """
 
     # Default values
-    session = kwargs.get("session", "N/A")
-    age = kwargs.get("age", None)
+
     max_rates_dict = kwargs.get("max_rates_dict", {})
     mean_rates_dict = kwargs.get("mean_rates_dict", {})
     spatial_info_dict = kwargs.get("spatial_info_dict", {})
     spatial_significance_dict = kwargs.get("spatial_significance_dict", {})
-    is_place_cell = kwargs.get("is_place_cell", False)
     trial_significance_dict = kwargs.get("trial_significance_dict", {})
     trial_names = kwargs.get("trial_names", None)
 
@@ -199,22 +195,10 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
         width_ratios=[1, 1, 0.05],
         wspace=0.3,
         hspace=0.4,
-        top=0.92,  # Add space at top for suptitle
+        top=0.90,  # Increased margin at top for better spacing
     )
 
-    # Build the suptitle dynamically
-    suptitle_parts = [f"Cluster {cluster_id}"]
-    if is_place_cell:
-        suptitle_parts.append("★ PLACE CELL")
-    if session != "N/A":
-        suptitle_parts.append(f"{session}")
-    if age is not None:
-        suptitle_parts.append(f"P{age}")
-    suptitle = " - ".join(suptitle_parts)
-
-    fig.suptitle(
-        suptitle, y=0.98, fontweight="bold" if is_place_cell else "normal", fontsize=12
-    )
+    # Note: Suptitle removed to reduce clutter and prevent overlap
 
     # First pass: find global max for consistent color scaling
     global_vmax = 0
@@ -266,15 +250,12 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
                 trial_name,
             )
 
-            # Wrap title to prevent overflow (roughly 40 chars per line)
-            wrapped_title = "\n".join(textwrap.wrap(title, width=40))
-
             # Set title with bold font if trial is significant
             is_trial_sig = trial_significance_dict.get(session_key, {}).get(
                 cluster_id, False
             )
             ax.set_title(
-                wrapped_title,
+                title,  # Use title directly (line break already inserted)
                 fontweight="bold" if is_trial_sig else "normal",
                 fontsize=9,
                 pad=12,
@@ -307,7 +288,7 @@ def _build_session_title(
     trial_name: str = None,
 ) -> str:
     """Build title string with available metrics for a session."""
-    title_parts = [trial_name if trial_name is not None else f"Trial {session_key}"]
+    title_parts = []  # Start with empty list (no trial name)
 
     # Add max firing rate if available
     if session_key in max_rates_dict and cluster_id in max_rates_dict[session_key]:
@@ -317,7 +298,13 @@ def _build_session_title(
     # Add mean firing rate if available
     if session_key in mean_rates_dict and cluster_id in mean_rates_dict[session_key]:
         mean_rate = mean_rates_dict[session_key][cluster_id]
-        title_parts.append(f"Mean FR: {mean_rate:.2f} Hz \n")
+        title_parts.append(f"Mean FR: {mean_rate:.2f} Hz")
+
+    # Join first line (Max FR and Mean FR)
+    first_line = ". ".join(title_parts)
+
+    # Start second line parts
+    second_line_parts = []
 
     # Add spatial information if available
     if (
@@ -325,7 +312,7 @@ def _build_session_title(
         and cluster_id in spatial_info_dict[session_key]
     ):
         spatial_info = spatial_info_dict[session_key][cluster_id]
-        title_parts.append(f"SI: {spatial_info:.2f}")
+        second_line_parts.append(f"SI: {spatial_info:.2f}")
 
     # Add trial significance marker if available
     if trial_significance_dict is not None:
@@ -335,9 +322,16 @@ def _build_session_title(
         ):
             is_significant = trial_significance_dict[session_key][cluster_id]
             if is_significant:
-                title_parts.append("✓ Significant")
+                second_line_parts.append("✓ Significant")
 
-    return ". ".join(title_parts)
+    # Join second line
+    second_line = ". ".join(second_line_parts)
+
+    # Combine with newline between them
+    if second_line:
+        return f"{first_line}\n{second_line}"
+    else:
+        return first_line
 
 
 def speed_filter_spikes(
