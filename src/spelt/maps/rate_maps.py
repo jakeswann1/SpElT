@@ -277,7 +277,7 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
                 wrapped_title,
                 fontweight="bold" if is_trial_sig else "normal",
                 fontsize=9,
-                pad=5,
+                pad=12,
             )
             ax.invert_yaxis()  # Match rate maps to theta phase plots
             ax.axis("off")
