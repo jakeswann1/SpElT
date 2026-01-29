@@ -14,6 +14,28 @@ from spelt.analysis.utils import (
 )
 
 
+def calculate_max_x_bins(pos_header: dict, bin_size: float) -> int:
+    """
+    Calculate the total number of X bins from spatial extent and bin size.
+
+    Parameters
+    ----------
+    pos_header : dict
+        Position header with min/max x/y boundaries
+    bin_size : float
+        Spatial bin size in cm
+
+    Returns
+    -------
+    int
+        Total number of X bins needed to cover the spatial extent
+    """
+    x_extent = pos_header["max_x"] - pos_header["min_x"]
+    scaled_ppm = pos_header.get("scaled_ppm", 400)
+    bin_length = bin_size * scaled_ppm / 100  # cm -> m -> pixels
+    return int(np.ceil(x_extent / bin_length))
+
+
 def get_sector_x_bins(
     pos_header: dict, bin_size: float, sectors: list[int]
 ) -> tuple[int, int]:
@@ -274,6 +296,7 @@ def compute_shuffle_iteration(
     precomputed_x_bins: list[np.ndarray],
     pos_sampling_rate: float,
     unit_ids: list,
+    max_x_bins: int,
 ) -> tuple[dict[int, np.ndarray], dict[int, np.ndarray], np.ndarray, np.ndarray]:
     """
     Compute one shuffle iteration with 1D processing using pre-computed position bins.
@@ -292,6 +315,8 @@ def compute_shuffle_iteration(
         Position sampling rate (Hz)
     unit_ids : list
         List of unit IDs to process
+    max_x_bins : int
+        Maximum number of X bins (ensures consistent array shapes)
 
     Returns
     -------
@@ -346,10 +371,10 @@ def compute_shuffle_iteration(
 
     # Generate 1D rate maps
     left_rate_maps, left_occupancy = make_1d_rate_maps(
-        left_spikes, left_times, left_x_idx, left_rate
+        left_spikes, left_times, left_x_idx, left_rate, max_x_bins=max_x_bins
     )
     right_rate_maps, right_occupancy = make_1d_rate_maps(
-        right_spikes, right_times, right_x_idx, right_rate
+        right_spikes, right_times, right_x_idx, right_rate, max_x_bins=max_x_bins
     )
 
     # Compute spike counts
@@ -441,6 +466,9 @@ def splitter_significance_1d(
     print(f"    Running {n_shuffles} shuffles with {n_jobs} parallel jobs...")
     print("    Using 1D (X-only) analysis with sector filtering...")
 
+    # Calculate consistent number of X bins from spatial extent
+    max_x_bins = calculate_max_x_bins(pos_header, bin_size)
+
     # Step 1: Generate real 1D rate maps WITH SECTOR FILTERING
     # 1a. Filter spikes by trajectory windows (time filtering)
     left_spikes, right_spikes = filter_spikes_by_windows_separate(
@@ -513,10 +541,10 @@ def splitter_significance_1d(
 
     # Generate 1D rate maps
     left_rate_maps_real, left_occupancy_real = make_1d_rate_maps(
-        left_spikes, left_times, left_x_idx, left_rate
+        left_spikes, left_times, left_x_idx, left_rate, max_x_bins=max_x_bins
     )
     right_rate_maps_real, right_occupancy_real = make_1d_rate_maps(
-        right_spikes, right_times, right_x_idx, right_rate
+        right_spikes, right_times, right_x_idx, right_rate, max_x_bins=max_x_bins
     )
 
     # Compute spike counts
@@ -562,6 +590,7 @@ def splitter_significance_1d(
             precomputed_x_bins,
             pos_rate,
             unit_ids,
+            max_x_bins,
         )
         for _ in range(n_shuffles)
     )

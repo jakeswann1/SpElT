@@ -1,3 +1,5 @@
+import textwrap
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -154,7 +156,10 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
             - mean_rates_dict: {trial: {cluster_id: mean_rate}}
             - spatial_info_dict: {trial: {cluster_id: spatial_info}}
             - spatial_significance_dict: {trial: {cluster_id: spatial_significance}}
-
+            - is_place_cell: bool indicating if this cluster is a place cell
+            - trial_significance_dict: {trial: {cluster_id: bool}} indicating if trial
+              passes BOTH significance and threshold criteria
+            - trial_names: list of trial names (indexed by trial number)
             - session (str): The session identifier. Defaults to "N/A".
             - age (int): The age of the cluster. Defaults to None.
     """
@@ -166,6 +171,9 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
     mean_rates_dict = kwargs.get("mean_rates_dict", {})
     spatial_info_dict = kwargs.get("spatial_info_dict", {})
     spatial_significance_dict = kwargs.get("spatial_significance_dict", {})
+    is_place_cell = kwargs.get("is_place_cell", False)
+    trial_significance_dict = kwargs.get("trial_significance_dict", {})
+    trial_names = kwargs.get("trial_names", None)
 
     n_sessions = sum(cluster_id in sub_dict for sub_dict in rate_maps_dict.values())
 
@@ -173,32 +181,79 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
         print(f"Cluster {cluster_id} is not found in any session.")
         return
 
-    # Create a figure with subplots for each session
-    fig, axes = plt.subplots(1, n_sessions, figsize=(15, 5))
+    # Calculate layout: 2 columns, ceil(n_sessions / 2) rows
+    n_cols = 2
+    n_rows = (n_sessions + n_cols - 1) // n_cols  # Ceiling division
+
+    # Create figure with 2-column layout
+    # Add extra width for colorbar on the right
+    fig = plt.figure(figsize=(8, 3.5 * n_rows))
+
+    # Create GridSpec for main plots and colorbar
+    import matplotlib.gridspec as gridspec
+
+    gs = gridspec.GridSpec(
+        n_rows,
+        n_cols + 1,
+        figure=fig,
+        width_ratios=[1, 1, 0.05],
+        wspace=0.3,
+        hspace=0.4,
+        top=0.92,  # Add space at top for suptitle
+    )
 
     # Build the suptitle dynamically
-    suptitle_parts = [f"Rate maps for Cluster {cluster_id}"]
+    suptitle_parts = [f"Cluster {cluster_id}"]
+    if is_place_cell:
+        suptitle_parts.append("★ PLACE CELL")
     if session != "N/A":
-        suptitle_parts.append(f"Session {session}")
+        suptitle_parts.append(f"{session}")
     if age is not None:
-        suptitle_parts.append(f"Age P{age}")
-    suptitle = " ".join(suptitle_parts)
+        suptitle_parts.append(f"P{age}")
+    suptitle = " - ".join(suptitle_parts)
 
-    fig.suptitle(suptitle, y=1.1)
+    fig.suptitle(
+        suptitle, y=0.98, fontweight="bold" if is_place_cell else "normal", fontsize=12
+    )
 
-    # Convert axes to list if there is only one session
-    if n_sessions == 1:
-        axes = [axes]
-    ax_idx = 0
+    # First pass: find global max for consistent color scaling
+    global_vmax = 0
+    for _, sub_dict in rate_maps_dict.items():
+        if cluster_id in sub_dict:
+            rate_map = sub_dict[cluster_id]
+            global_vmax = max(global_vmax, np.nanmax(rate_map))
+
+    # Ensure vmax is not zero
+    if global_vmax == 0:
+        global_vmax = 1
 
     # Plot rate maps for each session
+    images = []
+    ax_idx = 0
     for session_key, sub_dict in rate_maps_dict.items():
         if cluster_id not in sub_dict:
             continue
 
         try:
+            # Calculate subplot position (row, col)
+            row = ax_idx // n_cols
+            col = ax_idx % n_cols
+
+            # Create subplot
+            ax = fig.add_subplot(gs[row, col])
+
             rate_map = sub_dict[cluster_id]
-            axes[ax_idx].imshow(rate_map, cmap="jet", origin="lower", vmin=0)
+            # Use consistent vmin and vmax across all trials
+            im = ax.imshow(
+                rate_map, cmap="jet", origin="lower", vmin=0, vmax=global_vmax
+            )
+            images.append(im)
+
+            # Get trial name if available
+            if trial_names is not None and session_key < len(trial_names):
+                trial_name = trial_names[session_key]
+            else:
+                trial_name = f"Trial {session_key}"
 
             title = _build_session_title(
                 session_key,
@@ -207,18 +262,38 @@ def plot_cluster_across_session(rate_maps_dict, cluster_id, **kwargs):
                 mean_rates_dict,
                 spatial_info_dict,
                 spatial_significance_dict,
+                trial_significance_dict,
+                trial_name,
             )
 
-            axes[ax_idx].set_title(title)
-            axes[ax_idx].invert_yaxis()  # Match rate maps to theta phase plots
-            axes[ax_idx].axis("off")
+            # Wrap title to prevent overflow (roughly 40 chars per line)
+            wrapped_title = "\n".join(textwrap.wrap(title, width=40))
+
+            # Set title with bold font if trial is significant
+            is_trial_sig = trial_significance_dict.get(session_key, {}).get(
+                cluster_id, False
+            )
+            ax.set_title(
+                wrapped_title,
+                fontweight="bold" if is_trial_sig else "normal",
+                fontsize=9,
+                pad=5,
+            )
+            ax.invert_yaxis()  # Match rate maps to theta phase plots
+            ax.axis("off")
 
         except KeyError:
             pass
 
         ax_idx += 1
 
-    return fig, axes
+    # Add a single colorbar on the right spanning all rows
+    if images:
+        cbar_ax = fig.add_subplot(gs[:, -1])  # Span all rows, last column
+        cbar = fig.colorbar(images[0], cax=cbar_ax, label="Firing rate (Hz)")
+        cbar.ax.tick_params(labelsize=8)
+
+    return fig, fig.get_axes()
 
 
 def _build_session_title(
@@ -228,9 +303,11 @@ def _build_session_title(
     mean_rates_dict: dict[str, dict],
     spatial_info_dict: dict[str, dict],
     spatial_significance_dict: dict[str, dict],
+    trial_significance_dict: dict[str, dict] = None,
+    trial_name: str = None,
 ) -> str:
     """Build title string with available metrics for a session."""
-    title_parts = [f"Trial {session_key}"]
+    title_parts = [trial_name if trial_name is not None else f"Trial {session_key}"]
 
     # Add max firing rate if available
     if session_key in max_rates_dict and cluster_id in max_rates_dict[session_key]:
@@ -248,20 +325,17 @@ def _build_session_title(
         and cluster_id in spatial_info_dict[session_key]
     ):
         spatial_info = spatial_info_dict[session_key][cluster_id]
-        title_parts.append(f"Spatial Info: {spatial_info:.2f}")
+        title_parts.append(f"SI: {spatial_info:.2f}")
 
-    # Add spatial significance if available
-    if (
-        session_key in spatial_significance_dict
-        and cluster_id in spatial_significance_dict[session_key]
-    ):
-        p_value = spatial_significance_dict[session_key][cluster_id]
-        # round to 3 d.p. or <0.001
-        if p_value < 0.001:
-            title_parts.append("P < 0.001")
-        else:
-            p_value = round(p_value, 3)
-            title_parts.append(f"P = {p_value}")
+    # Add trial significance marker if available
+    if trial_significance_dict is not None:
+        if (
+            session_key in trial_significance_dict
+            and cluster_id in trial_significance_dict[session_key]
+        ):
+            is_significant = trial_significance_dict[session_key][cluster_id]
+            if is_significant:
+                title_parts.append("✓ Significant")
 
     return ". ".join(title_parts)
 
