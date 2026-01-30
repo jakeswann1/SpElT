@@ -45,6 +45,7 @@ class JupyterProgressDisplay:
     def __init__(self, total: int, desc: str = "Processing"):
         self.total = total
         self.desc = desc
+        self.start_time = time.time()
         self.widget = HTML()
         self.container = VBox([self.widget])
         display(self.container)
@@ -56,30 +57,106 @@ class JupyterProgressDisplay:
         running_pct = (running / self.total) * 100 if self.total > 0 else 0
         pending_pct = (pending / self.total) * 100 if self.total > 0 else 0
 
-        # Create HTML for multi-colored progress bar
+        # Calculate timing information
+        elapsed_time = time.time() - self.start_time
+        elapsed_str = self._format_time(elapsed_time)
+
+        if completed > 0:
+            mean_time = elapsed_time / completed
+            mean_str = self._format_time(mean_time)
+            # Estimate remaining time
+            remaining_time = mean_time * (running + pending)
+            remaining_str = self._format_time(remaining_time)
+            timing_info = (
+                f"Elapsed: {elapsed_str} | "
+                f"Mean: {mean_str}/session | "
+                f"Est. remaining: {remaining_str}"
+            )
+        else:
+            timing_info = f"Elapsed: {elapsed_str}"
+
+        # Create HTML for multi-colored progress bar with theme-aware styling
         html = f"""
-        <div style="margin: 10px 0;">
-            <div style="margin-bottom: 5px;">
+        <style>
+            .progress-container {{
+                margin: 10px 0;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                             Helvetica, Arial, sans-serif;
+            }}
+            .progress-status {{
+                margin-bottom: 5px;
+                color: var(--jp-ui-font-color1, inherit);
+            }}
+            .progress-bar {{
+                width: 100%;
+                height: 25px;
+                background-color: var(--jp-layout-color2,
+                                        rgba(128, 128, 128, 0.15));
+                border: 1px solid var(--jp-border-color1,
+                                       rgba(128, 128, 128, 0.3));
+                border-radius: 4px;
+                overflow: hidden;
+                display: flex;
+            }}
+            .progress-segment-completed {{
+                background-color: var(--jp-success-color1, #28a745);
+                height: 100%;
+            }}
+            .progress-segment-running {{
+                background-color: var(--jp-warn-color1, #ffc107);
+                height: 100%;
+            }}
+            .progress-segment-pending {{
+                background-color: var(--jp-layout-color3,
+                                        rgba(128, 128, 128, 0.3));
+                height: 100%;
+            }}
+            .progress-text {{
+                margin-top: 5px;
+                font-size: 0.9em;
+                color: var(--jp-ui-font-color2, #666);
+            }}
+            .progress-timing {{
+                margin-top: 3px;
+                font-size: 0.85em;
+                color: var(--jp-ui-font-color3, #888);
+            }}
+            .status-completed {{ color: var(--jp-success-color1, #28a745); }}
+            .status-running {{ color: var(--jp-warn-color1, #ffc107); }}
+            .status-pending {{ color: var(--jp-ui-font-color2, #6c757d); }}
+        </style>
+        <div class="progress-container">
+            <div class="progress-status">
                 <strong>{self.desc}:</strong> {completed}/{self.total}
-                <span style="color: #28a745;">● Completed: {completed}</span>
-                <span style="color: #ffc107;">● Running: {running}</span>
-                <span style="color: #6c757d;">● Pending: {pending}</span>
+                <span class="status-completed">● Completed: {completed}</span>
+                <span class="status-running">● Running: {running}</span>
+                <span class="status-pending">● Pending: {pending}</span>
             </div>
-            <div style="width: 100%; height: 25px; background-color: #e9ecef;
-                        border-radius: 4px; overflow: hidden; display: flex;">
-                <div style="width: {completed_pct}%; background-color: #28a745;
-                            height: 100%;"></div>
-                <div style="width: {running_pct}%; background-color: #ffc107;
-                            height: 100%;"></div>
-                <div style="width: {pending_pct}%; background-color: #6c757d;
-                            height: 100%;"></div>
+            <div class="progress-bar">
+                <div class="progress-segment-completed" style="width: {completed_pct}%;"></div>
+                <div class="progress-segment-running" style="width: {running_pct}%;"></div>
+                <div class="progress-segment-pending" style="width: {pending_pct}%;"></div>
             </div>
-            <div style="margin-top: 5px; font-size: 0.9em; color: #666;">
+            <div class="progress-text">
                 {completed_pct:.1f}% complete
             </div>
+            <div class="progress-timing">
+                {timing_info}
+            </div>
         </div>
-        """
+        """  # noqa: E501
         self.widget.value = html
+
+    def _format_time(self, seconds: float) -> str:
+        """Format time duration in a human-readable way."""
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        elif seconds < 3600:
+            minutes = seconds / 60
+            return f"{minutes:.1f}m"
+        else:
+            hours = seconds / 3600
+            return f"{hours:.1f}h"
 
     def close(self):
         """Finalize the progress display."""
