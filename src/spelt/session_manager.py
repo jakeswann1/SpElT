@@ -425,48 +425,52 @@ class SessionManager:
 
         # Setup shared counters for progress tracking
         manager = Manager()
-        completed_counter = manager.Value("i", 0)
-        running_counter = manager.Value("i", 0)
-        lock = manager.Lock()
+        try:
+            completed_counter = manager.Value("i", 0)
+            running_counter = manager.Value("i", 0)
+            lock = manager.Lock()
 
-        # Wrap process function with counter tracking
-        def tracked_process_fn(session_name: str):
-            # Mark as running
-            with lock:
-                running_counter.value += 1
+            # Wrap process function with counter tracking
+            def tracked_process_fn(session_name: str):
+                # Mark as running
+                with lock:
+                    running_counter.value += 1
+
+                try:
+                    result = process_fn(session_name)
+                    # Mark as completed
+                    with lock:
+                        running_counter.value -= 1
+                        completed_counter.value += 1
+                    return result
+                except Exception:
+                    # Mark as completed even on error
+                    with lock:
+                        running_counter.value -= 1
+                        completed_counter.value += 1
+                    raise
+
+            # Start progress monitoring
+            use_jupyter = JUPYTER_AVAILABLE and _is_jupyter()
+            monitor = ProgressMonitor(
+                total=len(sessions),
+                completed_counter=completed_counter,
+                running_counter=running_counter,
+                use_jupyter=use_jupyter,
+            )
+            monitor.start()
 
             try:
-                result = process_fn(session_name)
-                # Mark as completed
-                with lock:
-                    running_counter.value -= 1
-                    completed_counter.value += 1
-                return result
-            except Exception:
-                # Mark as completed even on error
-                with lock:
-                    running_counter.value -= 1
-                    completed_counter.value += 1
-                raise
+                results = Parallel(n_jobs=n_jobs)(
+                    delayed(tracked_process_fn)(s) for s in sessions
+                )
+            finally:
+                monitor.stop()
 
-        # Start progress monitoring
-        use_jupyter = JUPYTER_AVAILABLE and _is_jupyter()
-        monitor = ProgressMonitor(
-            total=len(sessions),
-            completed_counter=completed_counter,
-            running_counter=running_counter,
-            use_jupyter=use_jupyter,
-        )
-        monitor.start()
-
-        try:
-            results = Parallel(n_jobs=n_jobs)(
-                delayed(tracked_process_fn)(s) for s in sessions
-            )
+            return results
         finally:
-            monitor.stop()
-
-        return results
+            # Explicitly shutdown the manager to avoid deprecation warnings
+            manager.shutdown()
 
     def map(
         self,
