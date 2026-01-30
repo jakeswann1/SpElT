@@ -20,6 +20,131 @@ from tqdm.auto import tqdm
 from .ephys import ephys
 from .utils import load_sessions_from_config
 
+# Try to import ipywidgets for enhanced Jupyter progress display
+try:
+    from IPython.display import display
+    from ipywidgets import HTML, VBox
+
+    JUPYTER_AVAILABLE = True
+except ImportError:
+    JUPYTER_AVAILABLE = False
+
+
+def _is_jupyter() -> bool:
+    """Check if running in Jupyter environment."""
+    try:
+        shell = get_ipython().__class__.__name__  # type: ignore # noqa: F821
+        return shell is not None
+    except NameError:
+        return False
+
+
+class JupyterProgressDisplay:
+    """Custom Jupyter progress display with colored segments."""
+
+    def __init__(self, total: int, desc: str = "Processing"):
+        self.total = total
+        self.desc = desc
+        self.widget = HTML()
+        self.container = VBox([self.widget])
+        display(self.container)
+
+    def update(self, completed: int, running: int, pending: int):
+        """Update the progress display."""
+        # Calculate percentages
+        completed_pct = (completed / self.total) * 100 if self.total > 0 else 0
+        running_pct = (running / self.total) * 100 if self.total > 0 else 0
+        pending_pct = (pending / self.total) * 100 if self.total > 0 else 0
+
+        # Create HTML for multi-colored progress bar
+        html = f"""
+        <div style="margin: 10px 0;">
+            <div style="margin-bottom: 5px;">
+                <strong>{self.desc}:</strong> {completed}/{self.total}
+                <span style="color: #28a745;">● Completed: {completed}</span>
+                <span style="color: #ffc107;">● Running: {running}</span>
+                <span style="color: #6c757d;">● Pending: {pending}</span>
+            </div>
+            <div style="width: 100%; height: 25px; background-color: #e9ecef;
+                        border-radius: 4px; overflow: hidden; display: flex;">
+                <div style="width: {completed_pct}%; background-color: #28a745;
+                            height: 100%;"></div>
+                <div style="width: {running_pct}%; background-color: #ffc107;
+                            height: 100%;"></div>
+                <div style="width: {pending_pct}%; background-color: #6c757d;
+                            height: 100%;"></div>
+            </div>
+            <div style="margin-top: 5px; font-size: 0.9em; color: #666;">
+                {completed_pct:.1f}% complete
+            </div>
+        </div>
+        """
+        self.widget.value = html
+
+    def close(self):
+        """Finalize the progress display."""
+        self.update(self.total, 0, 0)
+
+
+class ProgressMonitor:
+    """Manages progress tracking and display for parallel processing."""
+
+    def __init__(
+        self, total: int, completed_counter, running_counter, use_jupyter: bool = False
+    ):
+        self.total = total
+        self.completed_counter = completed_counter
+        self.running_counter = running_counter
+        self.use_jupyter = use_jupyter
+        self.stop_event = threading.Event()
+        self.monitor_thread = None
+
+        # Create appropriate display
+        if use_jupyter:
+            self.display = JupyterProgressDisplay(
+                total=total, desc="Processing sessions"
+            )
+        else:
+            self.display = tqdm(total=total, desc="Processing sessions")
+
+    def start(self):
+        """Start the monitoring thread."""
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+
+    def _monitor_loop(self):
+        """Background thread that updates progress display."""
+        while not self.stop_event.is_set():
+            completed = self.completed_counter.value
+            running = self.running_counter.value
+            pending = self.total - completed - running
+
+            if self.use_jupyter:
+                self.display.update(completed, running, pending)
+            else:
+                self.display.n = completed
+                self.display.set_postfix_str(
+                    f"Running: {running} | Pending: {pending}", refresh=False
+                )
+                self.display.refresh()
+
+            time.sleep(0.1)  # Poll every 100ms
+
+    def stop(self):
+        """Stop monitoring and finalize display."""
+        self.stop_event.set()
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=1.0)
+
+        if self.use_jupyter:
+            self.display.close()
+        else:
+            self.display.n = self.total
+            self.display.set_postfix_str("All complete!", refresh=False)
+            self.display.refresh()
+            self.display.close()
+
+
 warnings.filterwarnings("ignore")
 warnings.filterwarnings(
     "ignore", message="Versions are not the same.*", category=UserWarning
@@ -115,6 +240,55 @@ class SessionManager:
 
         print(f"SessionManager initialized with {len(self.session_dict)} sessions")
 
+    def _create_session_processor(
+        self,
+        func: Callable,
+        return_exceptions: bool,
+        completed_counter=None,
+        running_counter=None,
+        lock=None,
+    ):
+        """Create a session processing function with progress tracking."""
+
+        def _process_session(session_name: str):
+            # Mark as running
+            if running_counter is not None and lock is not None:
+                with lock:
+                    running_counter.value += 1
+
+            try:
+                obj = self.get_ephys_object(session_name)
+                result = func(session_name, obj)
+
+                # Mark as completed
+                if completed_counter is not None and lock is not None:
+                    with lock:
+                        running_counter.value -= 1
+                        completed_counter.value += 1
+
+                return result
+            except Exception as e:
+                # Get full traceback
+                tb_str = traceback.format_exc()
+
+                # Mark as completed even on error
+                if completed_counter is not None and lock is not None:
+                    with lock:
+                        running_counter.value -= 1
+                        completed_counter.value += 1
+
+                if return_exceptions:
+                    return {
+                        "session": session_name,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "traceback": tb_str,
+                    }
+                else:
+                    raise SessionProcessingError(session_name, e, tb_str) from e
+
+        return _process_session
+
     def get_ephys_object(self, session_name: str, **kwargs) -> ephys:
         """
         Get an ephys object for a given session.
@@ -139,6 +313,83 @@ class SessionManager:
             self._object_cache[session_name] = obj
 
         return obj
+
+    def _map_serial(
+        self, sessions: list[str], process_fn: Callable, show_progress: bool
+    ) -> list[Any]:
+        """Execute serial processing with optional progress display."""
+        results = []
+        total = len(sessions)
+
+        if show_progress:
+            iterator = tqdm(sessions, desc="Processing sessions")
+        else:
+            iterator = sessions
+
+        for i, session_name in enumerate(iterator, 1):
+            result = process_fn(session_name)
+            results.append(result)
+            if show_progress:
+                print(f"Processed {i}/{total} sessions")
+
+        return results
+
+    def _map_parallel(
+        self,
+        sessions: list[str],
+        process_fn: Callable,
+        n_jobs: int,
+        show_progress: bool,
+    ) -> list[Any]:
+        """Execute parallel processing with optional progress display."""
+        if not show_progress:
+            # No progress tracking - use function as-is
+            return Parallel(n_jobs=n_jobs)(delayed(process_fn)(s) for s in sessions)
+
+        # Setup shared counters for progress tracking
+        manager = Manager()
+        completed_counter = manager.Value("i", 0)
+        running_counter = manager.Value("i", 0)
+        lock = manager.Lock()
+
+        # Wrap process function with counter tracking
+        def tracked_process_fn(session_name: str):
+            # Mark as running
+            with lock:
+                running_counter.value += 1
+
+            try:
+                result = process_fn(session_name)
+                # Mark as completed
+                with lock:
+                    running_counter.value -= 1
+                    completed_counter.value += 1
+                return result
+            except Exception:
+                # Mark as completed even on error
+                with lock:
+                    running_counter.value -= 1
+                    completed_counter.value += 1
+                raise
+
+        # Start progress monitoring
+        use_jupyter = JUPYTER_AVAILABLE and _is_jupyter()
+        monitor = ProgressMonitor(
+            total=len(sessions),
+            completed_counter=completed_counter,
+            running_counter=running_counter,
+            use_jupyter=use_jupyter,
+        )
+        monitor.start()
+
+        try:
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(tracked_process_fn)(s) for s in sessions
+            )
+        finally:
+            monitor.stop()
+
+        return results
 
     def map(
         self,
@@ -192,121 +443,22 @@ class SessionManager:
         else:
             sessions_to_process = self.session_names
 
-        # Wrap function to handle ephys object creation
+        # Wrap function with additional kwargs if provided
         if func_kwargs:
             func = partial(func, **func_kwargs)
 
-        # Setup shared counters for parallel processing
-        total_sessions = len(sessions_to_process)
-        if n_jobs != 1 and show_progress:
-            manager = Manager()
-            completed_counter = manager.Value("i", 0)
-            running_counter = manager.Value("i", 0)
-            lock = manager.Lock()
-        else:
-            completed_counter = None
-            running_counter = None
-            lock = None
+        # Create session processor with error handling
+        process_fn = self._create_session_processor(
+            func=func, return_exceptions=return_exceptions
+        )
 
-        def _process_session(session_name: str):
-            # Mark as running
-            if running_counter is not None and lock is not None:
-                with lock:
-                    running_counter.value += 1
-
-            try:
-                obj = self.get_ephys_object(session_name)
-                result = func(session_name, obj)
-
-                # Mark as completed
-                if completed_counter is not None and lock is not None:
-                    with lock:
-                        running_counter.value -= 1
-                        completed_counter.value += 1
-
-                return result
-            except Exception as e:
-                # Get full traceback
-                tb_str = traceback.format_exc()
-
-                # Mark as completed even on error
-                if completed_counter is not None and lock is not None:
-                    with lock:
-                        running_counter.value -= 1
-                        completed_counter.value += 1
-
-                if return_exceptions:
-                    # Return error info as dict for later analysis
-                    return {
-                        "session": session_name,
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                        "traceback": tb_str,
-                    }
-                else:
-                    # Raise informative error with session context
-                    raise SessionProcessingError(session_name, e, tb_str) from e
-
-        # Process sessions
-
+        # Dispatch to serial or parallel processing
         if n_jobs == 1:
-            # Serial processing
-            results = []
-            if show_progress:
-                iterator = tqdm(sessions_to_process, desc="Processing sessions")
-            else:
-                iterator = sessions_to_process
-            for i, s in enumerate(iterator, 1):
-                result = _process_session(s)
-                results.append(result)
-                if show_progress:
-                    print(f"Processed {i}/{total_sessions} sessions")
+            results = self._map_serial(sessions_to_process, process_fn, show_progress)
         else:
-            # Parallel processing
-            if show_progress:
-                # Create progress bar and monitoring thread
-                pbar = tqdm(total=total_sessions, desc="Processing sessions")
-                stop_event = threading.Event()
-
-                def monitor_progress():
-                    """Background thread that updates progress display."""
-                    while not stop_event.is_set():
-                        if (
-                            completed_counter is not None
-                            and running_counter is not None
-                        ):
-                            completed = completed_counter.value
-                            running = running_counter.value
-                            pending = total_sessions - completed - running
-
-                            # Update progress bar
-                            pbar.n = completed
-                            pbar.set_postfix_str(
-                                f"Running: {running} | Pending: {pending}",
-                                refresh=False,
-                            )
-                            pbar.refresh()
-                        time.sleep(0.1)  # Poll every 100ms
-
-                monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
-                monitor_thread.start()
-
-                try:
-                    results = Parallel(n_jobs=n_jobs)(
-                        delayed(_process_session)(s) for s in sessions_to_process
-                    )
-                finally:
-                    # Stop monitoring and cleanup
-                    stop_event.set()
-                    monitor_thread.join(timeout=1.0)
-                    pbar.n = total_sessions  # Ensure final state
-                    pbar.set_postfix_str("All complete!", refresh=False)
-                    pbar.refresh()
-                    pbar.close()
-            else:
-                results = Parallel(n_jobs=n_jobs)(
-                    delayed(_process_session)(s) for s in sessions_to_process
-                )
+            results = self._map_parallel(
+                sessions_to_process, process_fn, n_jobs, show_progress
+            )
 
         return results
 
