@@ -5,9 +5,12 @@ This module provides a high-level interface for working with multiple ephys sess
 enabling parallel processing and eliminating repetitive for-loop code.
 """
 
+import threading
+import time
 import traceback
 import warnings
 from functools import partial
+from multiprocessing import Manager
 from typing import Any, Callable
 
 import pandas as pd
@@ -193,14 +196,44 @@ class SessionManager:
         if func_kwargs:
             func = partial(func, **func_kwargs)
 
+        # Setup shared counters for parallel processing
+        total_sessions = len(sessions_to_process)
+        if n_jobs != 1 and show_progress:
+            manager = Manager()
+            completed_counter = manager.Value("i", 0)
+            running_counter = manager.Value("i", 0)
+            lock = manager.Lock()
+        else:
+            completed_counter = None
+            running_counter = None
+            lock = None
+
         def _process_session(session_name: str):
+            # Mark as running
+            if running_counter is not None and lock is not None:
+                with lock:
+                    running_counter.value += 1
+
             try:
                 obj = self.get_ephys_object(session_name)
                 result = func(session_name, obj)
+
+                # Mark as completed
+                if completed_counter is not None and lock is not None:
+                    with lock:
+                        running_counter.value -= 1
+                        completed_counter.value += 1
+
                 return result
             except Exception as e:
                 # Get full traceback
                 tb_str = traceback.format_exc()
+
+                # Mark as completed even on error
+                if completed_counter is not None and lock is not None:
+                    with lock:
+                        running_counter.value -= 1
+                        completed_counter.value += 1
 
                 if return_exceptions:
                     # Return error info as dict for later analysis
@@ -215,25 +248,65 @@ class SessionManager:
                     raise SessionProcessingError(session_name, e, tb_str) from e
 
         # Process sessions
+
         if n_jobs == 1:
             # Serial processing
+            results = []
             if show_progress:
-                results = [
-                    _process_session(s)
-                    for s in tqdm(sessions_to_process, desc="Processing sessions")
-                ]
+                iterator = tqdm(sessions_to_process, desc="Processing sessions")
             else:
-                results = [_process_session(s) for s in sessions_to_process]
+                iterator = sessions_to_process
+            for i, s in enumerate(iterator, 1):
+                result = _process_session(s)
+                results.append(result)
+                if show_progress:
+                    print(f"Processed {i}/{total_sessions} sessions")
         else:
             # Parallel processing
-            results = Parallel(n_jobs=n_jobs)(
-                delayed(_process_session)(s)
-                for s in tqdm(
-                    sessions_to_process,
-                    desc="Processing sessions",
-                    disable=not show_progress,
+            if show_progress:
+                # Create progress bar and monitoring thread
+                pbar = tqdm(total=total_sessions, desc="Processing sessions")
+                stop_event = threading.Event()
+
+                def monitor_progress():
+                    """Background thread that updates progress display."""
+                    while not stop_event.is_set():
+                        if (
+                            completed_counter is not None
+                            and running_counter is not None
+                        ):
+                            completed = completed_counter.value
+                            running = running_counter.value
+                            pending = total_sessions - completed - running
+
+                            # Update progress bar
+                            pbar.n = completed
+                            pbar.set_postfix_str(
+                                f"Running: {running} | Pending: {pending}",
+                                refresh=False,
+                            )
+                            pbar.refresh()
+                        time.sleep(0.1)  # Poll every 100ms
+
+                monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
+                monitor_thread.start()
+
+                try:
+                    results = Parallel(n_jobs=n_jobs)(
+                        delayed(_process_session)(s) for s in sessions_to_process
+                    )
+                finally:
+                    # Stop monitoring and cleanup
+                    stop_event.set()
+                    monitor_thread.join(timeout=1.0)
+                    pbar.n = total_sessions  # Ensure final state
+                    pbar.set_postfix_str("All complete!", refresh=False)
+                    pbar.refresh()
+                    pbar.close()
+            else:
+                results = Parallel(n_jobs=n_jobs)(
+                    delayed(_process_session)(s) for s in sessions_to_process
                 )
-            )
 
         return results
 
