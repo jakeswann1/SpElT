@@ -631,7 +631,10 @@ def bin_pos_data_dlc(
 
 
 def make_rate_maps_from_obj(
-    obj: ephys, bin_size: float = 2.5, trial_list: list[int] = None
+    obj: ephys,
+    bin_size: float = 2.5,
+    trial_list: list[int] = None,
+    unit_ids: list = None,
 ):
     rate_maps = {}
     pos_map = {}
@@ -646,9 +649,19 @@ def make_rate_maps_from_obj(
         trial_list = obj.trial_iterators
 
     if obj.unit_spikes is None:
-        spike_data = obj.load_single_unit_spike_trains()
+        spike_data = obj.load_single_unit_spike_trains(unit_ids=unit_ids)
     else:
         spike_data = obj.unit_spikes
+        # Filter to requested units if specified
+        if unit_ids is not None:
+            spike_data = {
+                trial: {
+                    uid: spikes
+                    for uid, spikes in trial_spikes.items()
+                    if uid in unit_ids
+                }
+                for trial, trial_spikes in spike_data.items()
+            }
 
     obj.load_pos(trial_list=trial_list, reload_flag=False, output_flag=False)
 

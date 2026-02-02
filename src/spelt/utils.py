@@ -1,10 +1,14 @@
 # Various functions useful for analysis
 import re
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import spikeinterface as si
 from scipy.sparse import coo_matrix
+
+if TYPE_CHECKING:
+    from spelt.ephys import ephys
 
 
 def load_session(obj, lfp_sampling_rate):
@@ -307,7 +311,7 @@ def get_subject_data(sheet_url: str, subject_id: str | None = None) -> pd.DataFr
     return subject_data
 
 
-def load_session_spatial_data(session_name: str, obj) -> dict:
+def load_session_spatial_data(session_name: str, obj: "ephys") -> dict:
     """
     Load preprocessed spatial information data for a single session.
 
@@ -340,13 +344,17 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
             - 'n_trials': number of trials
             - 'mean_p_value': mean p-value across trials
             - 'is_place_cell': boolean indicating if classified as place cell
+            - 'total_n_spikes': total number of spikes across all trials
+            - 'mean_n_spikes': mean number of spikes per trial
         - 'trial_data': list of dicts, one per trial per cell with keys:
             - 'cluster_id': cluster/unit ID
             - 'trial_name': trial identifier
             - 'trial_type': trial type (e.g., 'open-field', 't-maze')
+            - 'trial_id': trial index/iterator
             - 'spatial_info': spatial information for this specific trial
             - 'p_value': p-value for this specific trial
             - 'is_place_cell': boolean indicating if classified as place cell
+            - 'n_spikes': number of spikes in this trial
         - 'message': error or skip message (if not successful)
         - 'error', 'traceback': error details (if status is 'error')
 
@@ -389,11 +397,17 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
         spatial_sig_dict = np.load(spatial_sig_path, allow_pickle=True).item()
         place_cells = np.load(place_cells_path, allow_pickle=True)
 
-        # Create trial name to trial type mapping
+        # Load analyzer for spike count data
+        if obj.analyzer is None:
+            obj._load_ephys(from_disk=True)
+
+        # Create trial name to trial type mapping and trial index mapping
         trial_type_map = {}
+        trial_name_to_idx = {}
         for i, trial_name in enumerate(obj.trial_list):
             trial_type = obj.trial_types[i]
             trial_type_map[trial_name] = trial_type
+            trial_name_to_idx[trial_name] = i
 
         # Extract data for each cell (both trial-level and averaged)
         cell_data = []
@@ -416,6 +430,33 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
             # Check if place cell
             is_place_cell = cluster_id in place_cells
 
+            # Get spike counts for each trial
+            spike_counts = []
+            for trial_name in trial_names:
+                trial_idx = trial_name_to_idx.get(trial_name)
+                if trial_idx is not None:
+                    try:
+                        # Get spike train for this unit and trial
+                        spike_train = obj.analyzer.sorting.get_unit_spike_train(
+                            cluster_id, segment_index=trial_idx, return_times=False
+                        )
+                        n_spikes = len(spike_train)
+                    except Exception:
+                        # If spike data not available, use NaN
+                        n_spikes = np.nan
+                else:
+                    n_spikes = np.nan
+                spike_counts.append(n_spikes)
+
+            # Calculate total and mean spike counts
+            valid_spike_counts = [sc for sc in spike_counts if not np.isnan(sc)]
+            total_n_spikes = (
+                int(np.sum(valid_spike_counts)) if valid_spike_counts else 0
+            )
+            mean_n_spikes = (
+                np.mean(valid_spike_counts) if valid_spike_counts else np.nan
+            )
+
             # Store cell-level data (averaged across trials)
             cell_data.append(
                 {
@@ -425,21 +466,28 @@ def load_session_spatial_data(session_name: str, obj) -> dict:
                     "n_trials": len(si_values),
                     "mean_p_value": mean_p,
                     "is_place_cell": is_place_cell,
+                    "total_n_spikes": total_n_spikes,
+                    "mean_n_spikes": mean_n_spikes,
                 }
             )
 
             # Store trial-level data (individual trials)
-            for trial_name, si_value in zip(trial_names, si_values):
+            for trial_name, si_value, n_spikes in zip(
+                trial_names, si_values, spike_counts
+            ):
                 p_value = p_values_dict.get(trial_name, np.nan)
                 trial_type = trial_type_map.get(trial_name, "unknown")
+                trial_idx = trial_name_to_idx.get(trial_name)
                 trial_data.append(
                     {
                         "cluster_id": cluster_id,
                         "trial_name": trial_name,
                         "trial_type": trial_type,
+                        "trial_id": trial_idx,
                         "spatial_info": si_value,
                         "p_value": p_value,
                         "is_place_cell": is_place_cell,
+                        "n_spikes": n_spikes,
                     }
                 )
 
