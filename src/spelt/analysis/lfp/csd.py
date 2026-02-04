@@ -32,14 +32,16 @@ def _compute_csd(
     Returns
     -------
     np.ndarray
-        CSD values, shape (n_samples-2, n_channels)
-        Note: 2 time samples are lost due to second derivative operation
+        CSD values, shape (n_samples, n_channels-2)
+        Note: 2 channels are lost due to second spatial derivative
 
     Notes
     -----
     - LFP is multiplied by -1 following convention
-    - Second derivative along time axis removes 2 time samples
+    - Second spatial derivative (across channels) removes 2 edge channels
+    - CSD formula: CSD_n = -(LFP_{n-1} - 2*LFP_n + LFP_{n+1})
     - Smoothing uses Savitzky-Golay filter with appropriate polynomial order
+    - Units: Same as input LFP (typically µV) without spatial normalization
     """
     from scipy.signal import detrend, savgol_filter
 
@@ -72,9 +74,9 @@ def _compute_csd(
             lfp_proc, window_length=spat_sm, polyorder=polyorder_spat, axis=1
         )
 
-    # Calculate CSD using second derivative
-    # This removes 2 time samples
-    csd_values = np.diff(lfp_proc, n=2, axis=0)
+    # Calculate CSD using second SPATIAL derivative (across channels)
+    # This removes 2 edge channels (top and bottom)
+    csd_values = np.diff(lfp_proc, n=2, axis=1)
 
     return csd_values
 
@@ -229,15 +231,13 @@ def compute_event_locked_csd(
         lfp_mean, spat_sm=spat_sm, temp_sm=temp_sm, do_detrend=do_detrend
     )
 
-    # Adjust timestamps_relative to account for samples lost in CSD computation
-    # CSD loses 2 samples due to second derivative
-    timestamps_relative_adjusted = timestamps_relative[1:-1]
+    # No timestamp adjustment needed - CSD loses channels (spatial), not timepoints
 
     # Build results dictionary
     results = {
         "csd": csd,
         "lfp_mean": lfp_mean,
-        "timestamps_relative": timestamps_relative_adjusted,
+        "timestamps_relative": timestamps_relative,
         "n_events": len(lfp_windows),
         "n_events_excluded": n_events_excluded,
         "sampling_rate": sampling_rate,
@@ -451,25 +451,54 @@ def plot_event_locked_csd(
     axes[0].set_yticklabels([f"{int(d)}" for d in channel_labels])
     plt.colorbar(im, ax=axes[0], label="CSD")
 
-    # Right panel: Mean CSD profile (across time)
+    # Right panel: CSD profile at ripple peak (t=0)
     if plot_mean:
-        mean_across_time = np.nanmean(csd, axis=0)
-        axes[1].plot(mean_across_time, np.arange(n_channels), linewidth=2)
+        from scipy.ndimage import gaussian_filter1d
+
+        # Find index closest to t=0 (event peak)
+        peak_idx = np.argmin(np.abs(timestamps_relative))
+        csd_at_peak = csd[peak_idx, :]
+
+        # Apply Gaussian smoothing with σ=50µm
+        # Convert sigma from µm to channel indices
+        if channel_depths is not None and len(channel_labels) > 1:
+            # Estimate channel spacing from depth labels
+            depth_diffs = np.diff(channel_labels)
+            mean_spacing = np.abs(np.mean(depth_diffs))
+            sigma_channels = 50.0 / mean_spacing  # σ=50µm in channel units
+        else:
+            sigma_channels = 1.11  # Default: 50µm / 45µm spacing
+
+        csd_at_peak_smoothed = gaussian_filter1d(csd_at_peak, sigma=sigma_channels)
+
+        axes[1].plot(
+            csd_at_peak_smoothed,
+            np.arange(n_channels),
+            linewidth=2,
+            color="darkblue",
+            label="Smoothed (σ=50µm)",
+        )
         axes[1].axvline(x=0, color="grey", linestyle="--", alpha=0.5)
 
         # Add horizontal line at depth=0 if channel depths provided
         if channel_depths is not None and 0 in channel_labels:
             depth_zero_idx = np.argmin(np.abs(channel_labels))
             axes[1].axhline(
-                y=depth_zero_idx, color="r", linestyle="--", alpha=0.7, linewidth=2
+                y=depth_zero_idx,
+                color="r",
+                linestyle="--",
+                alpha=0.7,
+                linewidth=2,
+                label="CA1 Pyr Layer",
             )
 
-        axes[1].set_xlabel("Mean CSD")
+        axes[1].set_xlabel("CSD at Peak")
         axes[1].set_ylabel(ylabel)
-        axes[1].set_title("Time-Averaged CSD")
+        axes[1].set_title("CSD at Ripple Peak (t=0)")
         axes[1].set_yticks(np.arange(n_channels))
         axes[1].set_yticklabels([f"{int(d)}" for d in channel_labels])
         axes[1].grid(True, alpha=0.3)
+        axes[1].legend()
 
     plt.tight_layout()
 
@@ -539,9 +568,11 @@ def bz_csd(lfp: np.ndarray | dict | pd.DataFrame, **kwargs):
     # Generate output dictionary
     csd = {}
     csd["data"] = csd_values
-    csd["timestamps"] = timestamps[win[0] + 2 : win[1]]  # Remove the adjustment by 2
+    csd["timestamps"] = timestamps[
+        win[0] : win[1]
+    ]  # No adjustment - CSD loses channels, not timepoints
     csd["sampling_rate"] = sampling_rate
-    csd["channels"] = channels
+    csd["channels"] = channels[1:-1]  # CSD loses 2 edge channels
     csd["params"] = {"spat_sm": spat_sm, "temp_sm": temp_sm, "detrend": do_detrend}
 
     # Plot

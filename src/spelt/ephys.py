@@ -330,6 +330,20 @@ class ephys:  # noqa: N801
             return self.trial_iterators
         return trial_list
 
+    def get_trial_type_indices(self, trial_type: str) -> list[int]:
+        """
+        Get the indices of trials matching the specified trial type.
+
+        Args:
+            trial_type: The trial type to filter by.
+
+        Returns:
+            A list of trial indices that match the specified trial type.
+        """
+        return [
+            idx for idx, t_type in enumerate(self.trial_types) if t_type == trial_type
+        ]
+
     def should_load_data(
         self, trial_iterator: int, data_type: str, reload_flag: bool
     ) -> bool:
