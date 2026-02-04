@@ -339,6 +339,199 @@ def get_spike_phase(
         return spike_phases
 
 
+def detect_phase_crossings(
+    phase_data: np.ndarray,
+    timestamps: np.ndarray,
+    crossing_phase: float,
+    crossing_direction: str = "ascending",
+    min_interval_ms: float = 50.0,
+    sampling_rate: float | None = None,
+) -> np.ndarray:
+    """
+    Detect phase crossings at a specified phase angle.
+
+    Generic phase event detection that works with any phase signal. Useful for
+    detecting events aligned to specific phases (e.g., theta descending zero crossings,
+    gamma peaks, etc.).
+
+    Parameters
+    ----------
+    phase_data : np.ndarray
+        Phase signal in radians, shape (n_samples,).
+        Assumed to be in range [0, 2π] from get_signal_phase().
+    timestamps : np.ndarray
+        Timestamps in seconds, shape (n_samples,).
+    crossing_phase : float
+        Phase value (in radians) at which to detect crossings.
+        Examples: π/2 for descending zero, 0 or 2π for peaks, π for troughs.
+    crossing_direction : str, optional
+        Direction of phase crossing:
+        - "ascending": phase crosses from below to above crossing_phase
+        - "descending": phase crosses from above to below crossing_phase
+        Default is "ascending".
+    min_interval_ms : float, optional
+        Minimum time between consecutive crossings in milliseconds.
+        Used to filter out spurious crossings. Default is 50.0 ms.
+    sampling_rate : float, optional
+        Sampling rate in Hz. If not provided, computed from timestamps.
+
+    Returns
+    -------
+    crossing_times : np.ndarray
+        Array of timestamps (in seconds) where crossings occur.
+
+    Notes
+    -----
+    Phase Convention (from get_signal_phase):
+    - Phase range: 0 to 2π
+    - 0 and 2π = peak
+    - π = trough
+    - π/2 = descending zero crossing (signal crosses zero going DOWN)
+    - 3π/2 = ascending zero crossing (signal crosses zero going UP)
+
+    For descending zero crossing (peak → trough transition):
+    - Use crossing_phase=π/2, crossing_direction="ascending"
+    - The phase value increases through π/2 during descent
+
+    Examples
+    --------
+    >>> # Detect descending zero crossings (π/2, phase ascending)
+    >>> phase, _ = get_signal_phase(lfp, sampling_rate=1000, peak_freq=8)
+    >>> crossing_times = detect_phase_crossings(
+    ...     phase, timestamps, crossing_phase=np.pi/2, crossing_direction="ascending"
+    ... )
+    >>> print(f"Found {len(crossing_times)} descending zero crossings")
+
+    >>> # Detect peaks (phase crosses through 0)
+    >>> crossing_times = detect_phase_crossings(
+    ...     phase, timestamps, crossing_phase=0, crossing_direction="ascending"
+    ... )
+
+    >>> # Detect troughs (phase crosses through π)
+    >>> crossing_times = detect_phase_crossings(
+    ...     phase, timestamps, crossing_phase=np.pi, crossing_direction="ascending"
+    ... )
+    """
+    if crossing_direction not in ["ascending", "descending"]:
+        raise ValueError(
+            f"crossing_direction must be 'ascending' or 'descending', "
+            f"got '{crossing_direction}'"
+        )
+
+    if len(phase_data) != len(timestamps):
+        raise ValueError(
+            f"phase_data length ({len(phase_data)}) must match "
+            f"timestamps length ({len(timestamps)})"
+        )
+
+    # Compute sampling rate if not provided
+    if sampling_rate is None:
+        sampling_rate = 1.0 / np.median(np.diff(timestamps))
+
+    # Detect crossings
+    if crossing_direction == "ascending":
+        # Phase crosses from below to above crossing_phase
+        crossings_mask = (phase_data[:-1] < crossing_phase) & (
+            phase_data[1:] >= crossing_phase
+        )
+    else:  # descending
+        # Phase crosses from above to below crossing_phase
+        crossings_mask = (phase_data[:-1] >= crossing_phase) & (
+            phase_data[1:] < crossing_phase
+        )
+
+    crossing_indices = np.where(crossings_mask)[0] + 1
+
+    # Filter by minimum interval
+    if len(crossing_indices) > 0:
+        min_interval_samples = int((min_interval_ms / 1000.0) * sampling_rate)
+        filtered_crossings = [crossing_indices[0]]
+
+        for idx in crossing_indices[1:]:
+            if idx - filtered_crossings[-1] >= min_interval_samples:
+                filtered_crossings.append(idx)
+
+        crossing_indices = np.array(filtered_crossings)
+
+    # Convert to timestamps
+    crossing_times = timestamps[crossing_indices]
+
+    return crossing_times
+
+
+def compute_relative_phase(
+    phase_data: np.ndarray, reference_channel_idx: int
+) -> np.ndarray:
+    """
+    Compute relative phase between channels using circular statistics.
+
+    Calculates the mean phase difference between each channel and a reference
+    channel, properly handling phase wrapping. Useful for analyzing phase gradients
+    across channels (e.g., theta phase traveling waves).
+
+    Parameters
+    ----------
+    phase_data : np.ndarray
+        Phase data in radians, shape (n_samples, n_channels).
+        Assumed to be in range [0, 2π] from get_signal_phase().
+    reference_channel_idx : int
+        Index of the reference channel (0-based indexing).
+
+    Returns
+    -------
+    mean_relative_phase : np.ndarray
+        Mean relative phase for each channel in radians, shape (n_channels,).
+        Range: [-π, π], where 0 means in-phase with reference.
+        Positive values indicate phase lead, negative values indicate phase lag.
+
+    Notes
+    -----
+    Uses circular statistics to properly handle phase wrapping:
+    - Computes phase difference for each time point
+    - Wraps differences to [-π, π]
+    - Takes circular mean across time
+
+    Examples
+    --------
+    >>> # Compute theta phase relative to pyramidal layer (channel 0)
+    >>> phase, _ = get_signal_phase(lfp, sampling_rate=1000, peak_freq=8)
+    >>> relative_phase = compute_relative_phase(phase, reference_channel_idx=0)
+    >>> print(f"Channel 1 phase relative to reference: {relative_phase[1]:.2f} rad")
+
+    >>> # Convert to degrees for interpretation
+    >>> relative_phase_deg = np.rad2deg(relative_phase)
+    >>> print(f"Phase differences: {relative_phase_deg}")
+
+    See Also
+    --------
+    get_signal_phase : Compute instantaneous phase from LFP signal
+    """
+    if phase_data.ndim != 2:
+        raise ValueError(f"phase_data must be 2D, got shape {phase_data.shape}")
+
+    n_samples, n_channels = phase_data.shape
+
+    if not (0 <= reference_channel_idx < n_channels):
+        raise ValueError(
+            f"reference_channel_idx {reference_channel_idx} out of bounds "
+            f"for {n_channels} channels"
+        )
+
+    # Get phase at reference channel
+    phase_at_reference = phase_data[:, reference_channel_idx]
+
+    # Compute relative phase with proper wrapping
+    # Use complex exponential to handle circular wrapping correctly
+    relative_phase = np.angle(
+        np.exp(1j * (phase_data - phase_at_reference[:, np.newaxis]))
+    )
+
+    # Compute circular mean phase difference for each channel
+    mean_relative_phase = np.angle(np.nanmean(np.exp(1j * relative_phase), axis=0))
+
+    return mean_relative_phase
+
+
 ## Sample code to display sine wave - phase relationship
 # import numpy as np
 # import matplotlib.pyplot as plt

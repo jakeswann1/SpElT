@@ -4,12 +4,10 @@ from .csd import (
     bz_csd,
     calculate_csd_df,
     compute_event_locked_csd,
-    compute_phase_binned_csd,
-    mean_csd_theta_phase,
-    plot_csd_theta_phase,
     plot_event_locked_csd,
 )
 from .decomposition import calc_instantaneous_info, eemd
+from .event_locked import extract_event_locked_windows, pool_windows_across_trials
 from .filtering import bandpass_filter_lfp, get_filter_frequencies
 from .frequency_power import (
     compute_band_power,
@@ -17,7 +15,12 @@ from .frequency_power import (
     compute_band_power_single_channel,
 )
 from .peak_frequencies import find_peak_frequency, get_theta_frequencies
-from .phase import get_signal_phase, get_spike_phase
+from .phase import (
+    compute_relative_phase,
+    detect_phase_crossings,
+    get_signal_phase,
+    get_spike_phase,
+)
 from .ripple_detection import detect_ripples
 
 __all__ = [
@@ -31,6 +34,8 @@ __all__ = [
     # Phase
     "get_signal_phase",
     "get_spike_phase",
+    "detect_phase_crossings",
+    "compute_relative_phase",
     # Peak frequencies
     "find_peak_frequency",
     "get_theta_frequencies",
@@ -38,10 +43,10 @@ __all__ = [
     "bz_csd",
     "calculate_csd_df",
     "compute_event_locked_csd",
-    "compute_phase_binned_csd",
-    "mean_csd_theta_phase",
-    "plot_csd_theta_phase",
     "plot_event_locked_csd",
+    # Event-locked analysis
+    "extract_event_locked_windows",
+    "pool_windows_across_trials",
     # Decomposition
     "eemd",
     "calc_instantaneous_info",
