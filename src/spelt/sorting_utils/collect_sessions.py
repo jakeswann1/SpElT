@@ -13,9 +13,9 @@ def parse_session_info(session):
 
 
 def load_and_process_recording(
-    trial_info, trial, probe_to_sort, base_folder, area=None
+    trial_info, trial, probe_to_sort, base_folder, recording_type, area=None
 ):
-    if probe_to_sort == "NP2_openephys":
+    if probe_to_sort == "NP2_openephys" and recording_type == "NP2_openephys":
         try:
             recording = se.read_openephys(
                 folder_path=f"{base_folder}/{trial}/{area}", stream_id="0"
@@ -23,6 +23,20 @@ def load_and_process_recording(
         except FileNotFoundError:
             recording = se.read_openephys(
                 folder_path=f"{base_folder}/{trial}", stream_id="0"
+            )
+            print(f"Area not specified in file path, assuming area {area}")
+        return recording
+
+    elif probe_to_sort == "NP2_openephys" and recording_type == "NP2_onebox":
+        try:
+            recording = se.read_openephys(
+                folder_path=f"{base_folder}/{trial}/{area}",
+                stream_name="Record Node 101#OneBox-100.ProbeA",
+            )
+        except FileNotFoundError:
+            recording = se.read_openephys(
+                folder_path=f"{base_folder}/{trial}",
+                stream_name="Record Node 101#OneBox-100.ProbeA",
             )
             print(f"Area not specified in file path, assuming area {area}")
         return recording
@@ -52,7 +66,9 @@ def collect_trial_info(sheet, trial):
     return trial_info
 
 
-def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
+def collect_sessions(
+    session_list, trial_list, sheet, probe_to_sort, recording_type, area_list
+):
     """
     Collects recordings from a list of sessions and trials. Returns a list of lists,
     where each sublist corresponds to a session and contains that session's recordings.
@@ -87,7 +103,7 @@ def collect_sessions(session_list, trial_list, sheet, probe_to_sort, area_list):
                 print(f"Loading {base_folder}/{trial}")
 
                 recording = load_and_process_recording(
-                    trial_info, trial, probe_to_sort, base_folder, area
+                    trial_info, trial, probe_to_sort, base_folder, recording_type, area
                 )
                 trial_duration = recording.get_num_samples()
 
