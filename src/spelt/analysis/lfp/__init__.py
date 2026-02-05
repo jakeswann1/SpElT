@@ -1,11 +1,6 @@
 """LFP (Local Field Potential) analysis utilities."""
 
-from .csd import (
-    bz_csd,
-    calculate_csd_df,
-    compute_event_locked_csd,
-    plot_event_locked_csd,
-)
+from .csd import bz_csd, calculate_csd_df
 from .decomposition import calc_instantaneous_info, eemd
 from .event_locked import extract_event_locked_windows, pool_windows_across_trials
 from .filtering import bandpass_filter_lfp, get_filter_frequencies
@@ -42,8 +37,6 @@ __all__ = [
     # CSD
     "bz_csd",
     "calculate_csd_df",
-    "compute_event_locked_csd",
-    "plot_event_locked_csd",
     # Event-locked analysis
     "extract_event_locked_windows",
     "pool_windows_across_trials",
