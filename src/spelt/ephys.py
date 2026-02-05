@@ -6,6 +6,9 @@ import spikeinterface as si
 import spikeinterface.extractors as se
 import spikeinterface.preprocessing as spre
 
+from spelt.axona_utils.load_ephys import load_axona_ephys
+from spelt.np2_utils.load_ephys import load_np2_onebox, load_np2_pcie
+
 from .utils import gs_to_df
 
 si.set_global_job_kwargs(n_jobs=-2)
@@ -141,7 +144,7 @@ class ephys:  # noqa: N801
             self.sorting_path = (
                 self.recording_path / f"{self.date_short}_sorting_ks2_custom"
             )
-        elif self.recording_type == "NP2_openephys":
+        elif self.recording_type in ("NP2_openephys", "NP2_onebox"):
             self.sorting_path = (
                 self.recording_path
                 / f"{self.date_short}_{self.area}_sorting_ks4/sorter_output"
@@ -1269,8 +1272,6 @@ class ephys:  # noqa: N801
         """
         Make a SortingAnalyzer for extracting spikes and LFP
         """
-        import probeinterface as pi
-
         # Load sorting analyzer from disk if it exists. Raw recording will not be loaded
         # Makes a copy of the disk analyzer to avoid modifying the original
         if from_disk:
@@ -1292,19 +1293,21 @@ class ephys:  # noqa: N801
         for trial_iterator in self.trial_iterators:
             if self.recording_type == "nexus":
                 path = self.recording_path / f"{self.trial_list[trial_iterator]}.set"
-                probe_path = Path(__file__).parent / "axona_utils" / "probes"
-                recording = se.read_axona(path, all_annotations=True)
-                if self.probe_type == "5x12_buz":
-                    probe = pi.read_prb(probe_path / "5x12-16_buz.prb").probes[0]
-                else:
-                    print("Axona probe type not implemented in _load_ephys")
-                recording = recording.set_probe(probe)
+                recording = load_axona_ephys(path, self.probe_type)
 
-            elif self.recording_type == "NP2_openephys":
+            elif self.probe_type == "NP2_openephys":
                 path = self.recording_path / self.trial_list[trial_iterator] / self.area
-                if not path.exists():
-                    path = self.recording_path / self.trial_list[trial_iterator]
-                recording = se.read_openephys(path, stream_id="0", all_annotations=True)
+                if self.recording_type == "NP2_openephys":
+                    recording = load_np2_pcie(path)
+                elif self.recording_type == "NP2_onebox":
+                    recording = load_np2_onebox(path)
+
+            else:
+                raise ValueError(
+                    f"Recording type {self.recording_type}"
+                    " or probe type {self.probe_type} not implementes"
+                )
+
             recording_list.append(recording)
 
         # Load sorting

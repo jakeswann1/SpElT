@@ -112,9 +112,22 @@ def find_all_sessions(
     return session_dict
 
 
-def load_sessions_from_config(
-    config_path: str, config_name: str = "session_finder"
-) -> dict[str, str]:
+def load_config(config_path: str, config_name: str) -> dict[str, str]:
+    import yaml
+
+    with open(config_path) as file:
+        config = yaml.safe_load(file)
+
+    # Navigate to the specified configuration section
+    config_parts = config_name.split(".")
+    session_config = config
+    for part in config_parts:
+        session_config = session_config[part]
+
+    return session_config
+
+
+def load_sessions_from_config(config_path: str, config_name: str) -> dict[str, str]:
     """
     Load session dictionary using YAML configuration file.
 
@@ -139,16 +152,7 @@ def load_sessions_from_config(
     # Use example configuration
     sessions = load_sessions_from_config('session_selection.yaml', 'spike_sorting')
     """
-    import yaml
-
-    with open(config_path) as file:
-        config = yaml.safe_load(file)
-
-    # Navigate to the specified configuration section
-    config_parts = config_name.split(".")
-    session_config = config
-    for part in config_parts:
-        session_config = session_config[part]
+    session_config = load_config(config_path, config_name)
 
     # Extract parameters
     sheet_path = session_config["sheet_path"]
