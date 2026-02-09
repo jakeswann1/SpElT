@@ -1,6 +1,69 @@
 import numpy as np
 
 
+def apply_common_reference(
+    lfp_data: np.ndarray, method: str = "median", axis: int = 1
+) -> np.ndarray:
+    """
+    Apply common reference to multi-channel LFP data.
+
+    Computes a reference signal from all channels and subtracts it from
+    each channel. Common referencing removes shared noise and artifacts
+    while preserving local signals.
+
+    Parameters
+    ----------
+    lfp_data : np.ndarray
+        Multi-channel LFP data, shape (n_samples, n_channels)
+    method : str, optional
+        Reference method: "median" or "mean", by default "median"
+        - "median": More robust to outliers and artifacts
+        - "mean": Standard average reference
+    axis : int, optional
+        Axis along which to compute reference (default: 1 for channels)
+
+    Returns
+    -------
+    np.ndarray
+        Referenced LFP data with same shape as input
+
+    Raises
+    ------
+    ValueError
+        If method is not "median" or "mean"
+
+    Notes
+    -----
+    Common average reference (CAR) is a standard preprocessing step in multi-channel
+    neural recordings. It assumes that the reference signal (shared noise) affects
+    all channels equally and can be estimated by averaging across channels.
+
+    The median method is generally preferred for neural recordings as it is more
+    robust to artifacts or bad channels that may have extreme values.
+
+    Examples
+    --------
+    >>> # Apply median reference
+    >>> lfp_referenced = apply_common_reference(lfp_data, method="median")
+    >>>
+    >>> # Apply mean reference
+    >>> lfp_referenced = apply_common_reference(lfp_data, method="mean")
+    """
+    if method not in ["median", "mean"]:
+        raise ValueError(f"method must be 'median' or 'mean', got '{method}'")
+
+    # Compute reference signal
+    if method == "median":
+        reference = np.median(lfp_data, axis=axis, keepdims=True)
+    else:  # method == "mean"
+        reference = np.mean(lfp_data, axis=axis, keepdims=True)
+
+    # Subtract reference from each channel
+    lfp_referenced = lfp_data - reference
+
+    return lfp_referenced
+
+
 def find_evenly_spaced_channels(channel_depths, target_spacing, tolerance=2.0):
     """
     Find longest subsequence of channels with target spacing.
