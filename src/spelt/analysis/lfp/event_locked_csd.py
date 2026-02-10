@@ -140,9 +140,12 @@ def compute_event_locked_csd(
             continue
 
         # Extract windows
+        # Prefer relative timestamps if available (for consistency with position)
+        timestamps = trial_data.get("timestamps_relative", trial_data["timestamps"])
+
         windows, n_excluded = extract_event_locked_windows(
             lfp_data=trial_data["data"],
-            timestamps=trial_data["timestamps"],
+            timestamps=timestamps,
             event_times=event_times,
             time_window=time_window,
             sampling_rate=trial_data["sampling_rate"],

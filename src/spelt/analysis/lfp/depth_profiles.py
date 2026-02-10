@@ -99,7 +99,12 @@ def compute_depth_power_profile(
     lfp_segments = []
     for trial_idx in trials_to_include:
         if trial_idx not in lfp_data_by_trial:
-            raise KeyError(f"Trial {trial_idx} not found in lfp_data_by_trial")
+            available = sorted(lfp_data_by_trial.keys())
+            raise KeyError(
+                f"Trial {trial_idx} (type: {type(trial_idx)}) not found in "
+                f"lfp_data_by_trial. Available trials: {available} "
+                f"(types: {[type(k) for k in available]})"
+            )
 
         trial_data = lfp_data_by_trial[trial_idx]
         lfp_segments.append(trial_data["data"])  # (n_samples, n_channels)
@@ -228,13 +233,24 @@ def compute_conditional_depth_power_profile(
 
     for trial_idx in trials_to_include:
         if trial_idx not in lfp_data_by_trial:
-            raise KeyError(f"Trial {trial_idx} not found in lfp_data_by_trial")
+            available = sorted(lfp_data_by_trial.keys())
+            raise KeyError(
+                f"Trial {trial_idx} (type: {type(trial_idx)}) not found in "
+                f"lfp_data_by_trial. Available trials: {available} "
+                f"(types: {[type(k) for k in available]})"
+            )
         if trial_idx not in time_windows_by_trial:
-            raise KeyError(f"Trial {trial_idx} not found in time_windows_by_trial")
+            available = sorted(time_windows_by_trial.keys())
+            raise KeyError(
+                f"Trial {trial_idx} (type: {type(trial_idx)}) not found in "
+                f"time_windows_by_trial. Available trials: {available} "
+                f"(types: {[type(k) for k in available]})"
+            )
 
         trial_data = lfp_data_by_trial[trial_idx]
         lfp_data = trial_data["data"]  # (n_samples, n_channels)
-        timestamps = trial_data["timestamps"]
+        # Prefer relative timestamps if available (for consistency with position)
+        timestamps = trial_data.get("timestamps_relative", trial_data["timestamps"])
         time_windows = time_windows_by_trial[trial_idx]
 
         # Extract segments within time windows

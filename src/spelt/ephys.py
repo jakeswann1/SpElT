@@ -491,6 +491,11 @@ class ephys:  # noqa: N801
 
                     self.lfp_data[trial_iterator] = lfp_data
 
+                    # Backward compatibility: add timestamps_relative if not present
+                    if "timestamps_relative" not in lfp_data:
+                        timestamps = lfp_data["timestamps"]
+                        lfp_data["timestamps_relative"] = timestamps - timestamps[0]
+
                     # Apply channel selection if needed
                     if channels is not None:
                         self._subset_lfp_data(trial_iterator, channels)
@@ -955,6 +960,9 @@ class ephys:  # noqa: N801
             ).astype(float)
 
             lfp_timestamps = recording.get_times(segment_index=trial_iterator)
+            # Create relative timestamps (t=0 at trial start)
+            # to match position data convention
+            lfp_timestamps_relative = lfp_timestamps - lfp_timestamps[0]
 
             # If no channels specified, get all channel IDs from recording
             if channels is None:
@@ -962,7 +970,8 @@ class ephys:  # noqa: N801
 
             trial_lfp_data = {
                 "data": lfp_data,
-                "timestamps": lfp_timestamps,
+                "timestamps": lfp_timestamps,  # Absolute time
+                "timestamps_relative": lfp_timestamps_relative,  # Relative
                 "sampling_rate": sampling_rate,
                 "channels": channels,
                 "filter_range": bandpass_filter,
