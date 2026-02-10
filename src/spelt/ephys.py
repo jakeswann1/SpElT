@@ -1,4 +1,3 @@
-import pickle as pkl
 from pathlib import Path
 
 import numpy as np
@@ -402,6 +401,8 @@ class ephys:  # noqa: N801
             self.pos_data (list): A list that stores position data for each trial.
                 The position data for the specified trial is added at the given index.
         """
+        from .loaders.position_loader import load_position_data
+
         trial_list = self.normalize_trial_list(trial_list, "position")
 
         for trial_idx, trial_iterator in enumerate(trial_list):
@@ -413,8 +414,24 @@ class ephys:  # noqa: N801
 
             try:
                 tracking_type = self.tracking_types[trial_idx]
-                pos_data = self._load_pos_data_by_type(
-                    tracking_type, path, trial_iterator, output_flag
+                trial_name = self.trial_list[trial_iterator]
+                trial_type = self.session["Trial Type"].iloc[trial_iterator]
+                sync_data = self.sync_data[trial_iterator]
+
+                # Load TTL data if needed for bonsai_roi
+                if tracking_type == "bonsai_roi" and sync_data is None:
+                    self.load_ttl([trial_iterator], output_flag=False)
+                    sync_data = self.sync_data[trial_iterator]
+
+                pos_data = load_position_data(
+                    tracking_type=tracking_type,
+                    path=path,
+                    trial_name=trial_name,
+                    trial_type=trial_type,
+                    sync_data=sync_data,
+                    max_speed=self.max_speed,
+                    smoothing_window=self.smoothing_window_size,
+                    output_flag=output_flag,
                 )
                 self.pos_data[trial_iterator] = pos_data
             except Exception as e:
@@ -451,6 +468,14 @@ class ephys:  # noqa: N801
             self.lfp_data (list): A list that stores LFP data for each trial.
                 The LFP data for the specified trial is added at the given index.
         """
+        from .loaders.cache import load_pickle, save_pickle
+        from .loaders.lfp_loader import (
+            has_requested_channels,
+            load_lfp_data,
+            subset_lfp_channels,
+            validate_lfp_cache,
+        )
+
         trial_list = self.normalize_trial_list(trial_list, "lfp")
 
         for trial_iterator in trial_list:
@@ -460,14 +485,18 @@ class ephys:  # noqa: N801
                 or self.lfp_data[trial_iterator] is None
                 or (
                     channels is not None
-                    and not self._has_requested_channels(trial_iterator, channels)
+                    and not has_requested_channels(
+                        self.lfp_data[trial_iterator], channels
+                    )
                 )
             )
 
             if not should_reload:
                 # Apply channel selection if needed
                 if channels is not None:
-                    self._subset_lfp_data(trial_iterator, channels)
+                    self.lfp_data[trial_iterator] = subset_lfp_channels(
+                        self.lfp_data[trial_iterator], channels
+                    )
                 if self.lfp_data[trial_iterator] is not None:
                     print(f"LFP already loaded for trial {trial_iterator}")
                     continue
@@ -477,17 +506,18 @@ class ephys:  # noqa: N801
             # Try to load from preprocessed data first (if enabled and file exists)
             if from_preprocessed and lfp_path.exists():
                 try:
-                    with lfp_path.open("rb") as f:
-                        lfp_data = pkl.load(f)  # noqa: S301
+                    lfp_data = load_pickle(lfp_path)
 
                     # Validate parameters against saved data
-                    self._validate_lfp_parameters(
-                        lfp_data,
-                        trial_iterator,
-                        sampling_rate,
-                        channels,
-                        bandpass_filter,
+                    is_valid, reason = validate_lfp_cache(
+                        lfp_data, sampling_rate, channels, bandpass_filter
                     )
+
+                    if not is_valid:
+                        raise ValueError(
+                            f"Trial {trial_iterator}: {reason}. "
+                            "Use from_preprocessed=False to reload with new parameters."
+                        )
 
                     self.lfp_data[trial_iterator] = lfp_data
 
@@ -498,79 +528,56 @@ class ephys:  # noqa: N801
 
                     # Apply channel selection if needed
                     if channels is not None:
-                        self._subset_lfp_data(trial_iterator, channels)
+                        self.lfp_data[trial_iterator] = subset_lfp_channels(
+                            lfp_data, channels
+                        )
 
                     print(f"Loaded preprocessed LFP data for trial {trial_iterator}")
                     continue
                 except Exception as e:
                     print(
-                        f"Error loading preprocessed LFP for trial{trial_iterator}: {e}"
+                        f"Error loading preprocessed LFP for trial "
+                        f"{trial_iterator}: {e}"
                     )
                     print("Falling back to raw data loading...")
 
-            # Load from raw data (either because from_preprocessed=False,
-            # file doesn't exist, or loading failed)
-            self._load_and_save_lfp_data(
-                trial_iterator,
-                sampling_rate,
-                channels,
-                bandpass_filter,
-                save_to_disk=from_preprocessed,
-            )
+            # Load from raw data
+            if self.analyzer is None:
+                self._load_ephys(sparse=False)
 
-    def _has_requested_channels(
-        self, trial_iterator: int, requested_channels: list[int]
-    ) -> bool:
-        """Check if LFP data already contains the requested channels."""
-        if self.lfp_data[trial_iterator] is None:
-            return False
+            path = self.recording_path / self.trial_list[trial_iterator]
+            self.log_loading_info(path, "lfp", True)
 
-        available_channels = self.lfp_data[trial_iterator].get("channels")
-        if available_channels is None:
-            return True  # Assume all channels if not specified
+            temp_folder = self.recording_path / "temp"
 
-        available_channels_int = [int(ch) for ch in available_channels]
-        return all(ch in available_channels_int for ch in requested_channels)
+            try:
+                lfp_data = load_lfp_data(
+                    recording=self.raw_recording,
+                    segment_index=trial_iterator,
+                    sampling_rate=sampling_rate,
+                    recording_type=self.recording_type,
+                    temp_folder=temp_folder,
+                    channels=channels,
+                    bandpass_filter=bandpass_filter,
+                )
 
-    def _subset_lfp_data(self, trial_iterator: int, requested_channels: list[int]):
-        """Subset LFP data to only include requested channels."""
-        if self.lfp_data[trial_iterator] is None:
-            return
+                self.lfp_data[trial_iterator] = lfp_data
 
-        lfp_data = self.lfp_data[trial_iterator]
-        available_channels = lfp_data.get("channels")
+                # Save to disk for future loading (only if requested)
+                if from_preprocessed:
+                    try:
+                        save_pickle(lfp_data, lfp_path)
+                        file_size = lfp_path.stat().st_size
+                        print(
+                            f"Saved trial {trial_iterator} LFP data to "
+                            f"{lfp_path} ({file_size / 1e6:.2f} MB)"
+                        )
+                    except Exception as e:
+                        print(f"Warning: Could not save LFP data to disk: {e}")
 
-        if available_channels is None:
-            # If no channel info, assume channels are in order
-            available_channels = list(range(lfp_data["data"].shape[1]))
-        else:
-            available_channels = [int(ch) for ch in available_channels]
-
-        # Find indices of requested channels
-        try:
-            channel_indices = [
-                available_channels.index(ch) for ch in requested_channels
-            ]
-        except ValueError as e:
-            missing_channels = [
-                ch for ch in requested_channels if ch not in available_channels
-            ]
-            raise ValueError(
-                f"Trial {trial_iterator}: Requested channels {missing_channels} "
-                f"not found in available data (available: {available_channels})."
-            ) from e
-
-        # Subset the data
-        lfp_data["data"] = lfp_data["data"][:, channel_indices]
-        lfp_data["channels"] = [str(ch) for ch in requested_channels]
-
-        # Subset theta phase data if it exists
-        if "theta_phase" in lfp_data:
-            lfp_data["theta_phase"] = lfp_data["theta_phase"][:, channel_indices]
-            lfp_data["cycle_numbers"] = lfp_data["cycle_numbers"][:, channel_indices]
-            lfp_data["theta_freqs"] = {
-                ch: lfp_data["theta_freqs"][ch] for ch in requested_channels
-            }
+            except Exception as e:
+                print(f"Error loading LFP data for trial {trial_iterator}: {str(e)}")
+                self.lfp_data[trial_iterator] = None
 
     def load_ttl(
         self,
@@ -593,6 +600,9 @@ class ephys:  # noqa: N801
             self.sync_data (list): A list that stores TTL data for each trial.
                 The TTL data for the specified trial is added at the given index.
         """
+        from .loaders.cache import load_pickle, save_pickle
+        from .loaders.ttl_loader import load_ttl_data
+
         if self.recording_type != "NP2_openephys":
             print("TTL data only available for NP2_openephys recordings")
             return
@@ -608,8 +618,7 @@ class ephys:  # noqa: N801
             # Try to load from preprocessed data first (if enabled and file exists)
             if from_preprocessed and ttl_path.exists():
                 try:
-                    with ttl_path.open("rb") as f:
-                        ttl_data = pkl.load(f)  # noqa: S301
+                    ttl_data = load_pickle(ttl_path)
                     self.sync_data[trial_iterator] = ttl_data
                     if output_flag:
                         print(
@@ -621,11 +630,31 @@ class ephys:  # noqa: N801
                         print(f"Error loading TTL for trial {trial_iterator}: {e}")
                         print("Falling back to raw data loading...")
 
-            # Load from raw data (either because from_preprocessed=False,
-            #  file doesn't exist, or loading failed)
-            self._load_and_save_ttl_data(
-                trial_iterator, output_flag, save_to_disk=from_preprocessed
+            # Load from raw data
+            path = self.recording_path / self.trial_list[trial_iterator]
+            self.log_loading_info(path, "TTL", output_flag)
+
+            # Ensure analyzer is loaded to get recording start time
+            if not self.analyzer:
+                self._load_ephys(sparse=False)
+
+            recording_start_time = self.analyzer.recording.get_start_time(
+                segment_index=trial_iterator
             )
+
+            ttl_data = load_ttl_data(path, recording_start_time)
+            self.sync_data[trial_iterator] = ttl_data
+
+            # Save to cache if requested
+            if from_preprocessed:
+                try:
+                    save_pickle(ttl_data, ttl_path)
+                    if output_flag:
+                        print(
+                            f"Saved TTL data for trial {trial_iterator} to {ttl_path}"
+                        )
+                except Exception as e:
+                    print(f"Warning: Could not save TTL data to disk: {e}")
 
     def load_theta_phase(
         self,
@@ -655,6 +684,9 @@ class ephys:  # noqa: N801
 
         Also subsets all LFP data to requested channels if specified.
         """
+        from .loaders.cache import load_pickle, save_pickle
+        from .loaders.lfp_loader import subset_lfp_channels
+        from .loaders.theta_loader import compute_theta_phase
 
         # Use all channels if not specified
         if channels is None and output_flag:
@@ -671,16 +703,17 @@ class ephys:  # noqa: N801
             ):
                 # Apply channel selection if needed
                 if channels is not None:
-                    self._subset_lfp_data(trial_iterator, channels)
+                    self.lfp_data[trial_iterator] = subset_lfp_channels(
+                        self.lfp_data[trial_iterator], channels
+                    )
 
                 if output_flag:
                     channel_info = (
                         f" (channels {channels})" if channels else " (all channels)"
                     )
                     print(
-                        "Theta phase data already loaded for trial",
-                        {trial_iterator},
-                        {channel_info},
+                        f"Theta phase data already loaded for trial {trial_iterator}"
+                        f"{channel_info}"
                     )
                 continue
 
@@ -691,8 +724,7 @@ class ephys:  # noqa: N801
             # Try to load from preprocessed data first (if enabled and file exists)
             if from_preprocessed and theta_phase_path.exists():
                 try:
-                    with theta_phase_path.open("rb") as f:
-                        saved_theta_data = pkl.load(f)  # noqa: S301
+                    saved_theta_data = load_pickle(theta_phase_path)
 
                     # Ensure LFP data is loaded
                     if self.lfp_data[trial_iterator] is None:
@@ -703,579 +735,98 @@ class ephys:  # noqa: N801
                         )
 
                     # Add theta phase data to LFP data
-                    self.lfp_data[trial_iterator].update(
-                        {
-                            "theta_phase": saved_theta_data["theta_phase"],
-                            "cycle_numbers": saved_theta_data["cycle_numbers"],
-                            "theta_freqs": saved_theta_data["theta_freqs"],
-                        }
-                    )
+                    self.lfp_data[trial_iterator].update(saved_theta_data)
 
                     # Apply channel selection if needed
                     if channels is not None:
-                        self._subset_lfp_data(trial_iterator, channels)
+                        self.lfp_data[trial_iterator] = subset_lfp_channels(
+                            self.lfp_data[trial_iterator], channels
+                        )
 
                     if output_flag:
                         channel_info = (
                             f" (channels {channels})" if channels else " (all channels)"
                         )
                         print(
-                            "Loaded preprocessed theta phase data for trial",
-                            {trial_iterator},
-                            {channel_info},
+                            f"Loaded preprocessed theta phase data for trial "
+                            f"{trial_iterator}{channel_info}"
                         )
                     continue
 
                 except Exception as e:
                     if output_flag:
                         print(
-                            "Error loading preprocessed theta phase for trial",
-                            {trial_iterator},
-                            {e},
+                            f"Error loading preprocessed theta phase for trial "
+                            f"{trial_iterator}: {e}"
                         )
                         print("Falling back to raw data processing...")
 
             # Load/process from raw data
-            self._load_and_save_theta_phase_data(
-                trial_iterator,
-                channels,
-                clip_value,
-                output_flag,
-                save_to_disk=from_preprocessed,
-            )
+            if output_flag:
+                print(f"Processing theta phase data for trial {trial_iterator}")
+
+            # Check if LFP data is loaded for this trial
+            if self.lfp_data[trial_iterator] is None:
+                if output_flag:
+                    print(f"Loading LFP data for trial {trial_iterator}")
+                self.load_lfp(
+                    trial_list=[trial_iterator],
+                    channels=channels,
+                    from_preprocessed=True,
+                )
+
+            try:
+                # Get LFP data for this trial
+                lfp_array = self.lfp_data[trial_iterator]["data"]
+                lfp_sampling_rate = self.lfp_data[trial_iterator]["sampling_rate"]
+                available_channels = self.lfp_data[trial_iterator].get("channels")
+
+                # Use all available channels if none specified
+                if channels is None:
+                    channels_to_use = (
+                        [int(ch) for ch in available_channels]
+                        if available_channels
+                        else list(range(lfp_array.shape[1]))
+                    )
+                else:
+                    channels_to_use = channels
+
+                # Compute theta phase
+                theta_data = compute_theta_phase(
+                    lfp_array, lfp_sampling_rate, channels_to_use, clip_value
+                )
+
+                # Add theta phase data to existing LFP data
+                self.lfp_data[trial_iterator].update(theta_data)
+
+                # Apply channel selection if needed
+                if channels is not None and len(channels) < lfp_array.shape[1]:
+                    self.lfp_data[trial_iterator] = subset_lfp_channels(
+                        self.lfp_data[trial_iterator], channels
+                    )
+
+                if output_flag:
+                    print(f"Processed theta phase data for trial {trial_iterator}")
+
+                # Save theta phase data to disk for future loading if requested
+                if from_preprocessed:
+                    try:
+                        save_pickle(theta_data, theta_phase_path)
+                        file_size = theta_phase_path.stat().st_size
+                        if output_flag:
+                            print(
+                                f"Saved trial {trial_iterator} theta phase data to "
+                                f"{theta_phase_path} ({file_size / 1e6:.2f} MB)"
+                            )
+                    except Exception as e:
+                        print(f"Warning: Could not save theta phase data to disk: {e}")
+
+            except Exception as e:
+                print(
+                    f"Error processing theta phase data for trial {trial_iterator}: {e}"
+                )
 
         return self.lfp_data
-
-    def _load_and_save_theta_phase_data(
-        self,
-        trial_iterator: int,
-        channels: list[int] | None,
-        clip_value: int | None,
-        output_flag: bool,
-        save_to_disk: bool = True,
-    ):
-        """
-        Helper to process theta phase data from existing LFP and optionally save to disk
-
-        Args:
-            trial_iterator: The trial index to process
-            channels: List of channel IDs to process (None for all channels)
-            clip_value: Clipping value for LFP data
-            output_flag: If True, print processing information
-            save_to_disk: If True, save the processed data to disk for future use
-        """
-        from spelt.analysis.lfp import get_signal_phase, get_theta_frequencies
-
-        if output_flag:
-            print(f"Processing theta phase data for trial {trial_iterator}")
-
-        # Check if LFP data is loaded for this trial
-        if self.lfp_data[trial_iterator] is None:
-            if output_flag:
-                print(f"Loading LFP data for trial {trial_iterator}")
-            self.load_lfp(
-                trial_list=[trial_iterator], channels=channels, from_preprocessed=True
-            )
-
-        try:
-            # Get LFP data for this trial
-            lfp_data = self.lfp_data[trial_iterator]["data"]  # Shape: (time, channels)
-            lfp_sampling_rate = self.lfp_data[trial_iterator]["sampling_rate"]
-            available_channels = self.lfp_data[trial_iterator].get("channels")
-
-            # Use all available channels if none specified
-            if channels is None:
-                channels = (
-                    [int(ch) for ch in available_channels]
-                    if available_channels
-                    else list(range(lfp_data.shape[1]))
-                )
-
-            # Find peak theta frequencies for all channels
-            theta_freqs = get_theta_frequencies(lfp_data, lfp_sampling_rate)
-            theta_freqs_dict = dict(zip(channels, theta_freqs))
-
-            # Calculate theta phase for all channels
-            theta_phase, cycle_numbers = get_signal_phase(
-                lfp_data,
-                lfp_sampling_rate,
-                peak_freq=theta_freqs,
-                clip_value=clip_value,
-            )
-
-            # Add theta phase data to existing LFP data
-            self.lfp_data[trial_iterator].update(
-                {
-                    "theta_phase": theta_phase,
-                    "cycle_numbers": cycle_numbers,
-                    "theta_freqs": theta_freqs_dict,
-                }
-            )
-
-            # Apply channel selection if needed
-            if channels is not None and len(channels) < lfp_data.shape[1]:
-                self._subset_lfp_data(trial_iterator, channels)
-
-            if output_flag:
-                print(f"Processed theta phase data for trial {trial_iterator}")
-
-            # Save theta phase data separately to disk for future loading if requested
-            if save_to_disk:
-                theta_phase_path = (
-                    self.recording_path / f"theta_phase_trial_{trial_iterator}.pkl"
-                )
-                try:
-                    theta_phase_data = {
-                        "theta_phase": theta_phase,
-                        "cycle_numbers": cycle_numbers,
-                        "theta_freqs": theta_freqs_dict,
-                    }
-
-                    with theta_phase_path.open("wb") as f:
-                        pkl.dump(theta_phase_data, f)
-
-                    # Print saved file size
-                    file_size = theta_phase_path.stat().st_size
-                    if output_flag:
-                        print(
-                            f"Saved trial {trial_iterator} theta phase data to "
-                            f"{theta_phase_path} ({file_size / 1e6:.2f} MB)"
-                        )
-
-                except Exception as e:
-                    print(f"Warning: Could not save theta phase data to disk: {e}")
-
-        except Exception as e:
-            print(
-                "Error processing theta phase data for trial",
-                {trial_iterator},
-                {str(e)},
-            )
-            # Don't set to None since LFP data might still be valid
-
-    def _validate_lfp_parameters(
-        self,
-        saved_data: dict,
-        trial_iterator: int,
-        requested_sampling_rate: int,
-        requested_channels: list | None,
-        requested_filter: list[float, float] | None,
-    ):
-        """
-        Validate that the requested parameters match the saved LFP data.
-
-        Args:
-            saved_data: The loaded LFP data dictionary.
-            trial_iterator: The trial index being loaded.
-            requested_sampling_rate: The requested sampling rate.
-            requested_channels: The requested channels list.
-            requested_filter: The requested bandpass filter range.
-
-        Raises:
-            ValueError: If parameters don't match the saved data.
-        """
-        # Check sampling rate (only validate if both are not None)
-        saved_sampling_rate = saved_data.get("sampling_rate")
-        if (
-            requested_sampling_rate is not None
-            and saved_sampling_rate is not None
-            and saved_sampling_rate != requested_sampling_rate
-        ):
-            raise ValueError(
-                f"""
-                Trial {trial_iterator}: Requested sampling rate
-                ({requested_sampling_rate} Hz) doesn't match saved data
-                ({saved_sampling_rate} Hz).
-                Use from_preprocessed=False to reload with new parameters.
-                """
-            )
-
-        # Check filter range (only validate if both are not None)
-        saved_filter = saved_data.get("filter_range")
-        if (
-            requested_filter is not None
-            and saved_filter is not None
-            and saved_filter != requested_filter
-        ):
-            raise ValueError(
-                f"Trial {trial_iterator}: Requested filter range ({requested_filter}) "
-                f"doesn't match saved data ({saved_filter}). "
-                f"Use from_preprocessed=False to reload with new parameters."
-            )
-
-    def _load_and_save_lfp_data(
-        self,
-        trial_iterator: int,
-        sampling_rate: int,
-        channels: list | None,
-        bandpass_filter: list[float, float] | None,
-        save_to_disk: bool = True,
-    ):
-        """
-        Helper method to load LFP data from raw files and optionally save to disk.
-
-        Args:
-            trial_iterator: The trial index to load.
-            sampling_rate: The desired sampling rate for the LFP data.
-            channels: A list of channel IDs to load.
-            bandpass_filter: Apply bandpass filter with min and max frequency.
-            save_to_disk: If True, save the loaded data to disk for future use.
-        """
-        if self.analyzer is None:
-            self._load_ephys(sparse=False)
-
-        recording = self.raw_recording
-
-        # Bandpass filter
-        if bandpass_filter is not None:
-            recording = spre.bandpass_filter(
-                recording, freq_min=bandpass_filter[0], freq_max=bandpass_filter[1]
-            )
-
-        # AXONA ONLY: clip values of >+- 32000
-        if self.recording_type == "nexus":
-            recording = spre.clip(recording, a_min=-32000, a_max=32000)
-
-        # Resample
-        recording: si.BaseRecording = spre.resample(recording, sampling_rate)
-        print("Resampled to", sampling_rate, "Hz")
-
-        # Set channels to load to list of str to match recording object
-        #  - not ideal but other fixes are harder
-        if channels is not None:
-            channels = list(map(str, channels))
-
-        path = self.recording_path / self.trial_list[trial_iterator]
-        self.log_loading_info(path, "lfp", True)
-
-        temp_folder = self.recording_path / "temp"
-
-        try:
-            # create temporary recording object on disk
-            recording.save(format="zarr", folder=temp_folder)
-            recording = recording.load(f"{temp_folder}.zarr")
-
-            lfp_data = recording.get_traces(
-                segment_index=trial_iterator, channel_ids=channels, return_scaled=True
-            ).astype(float)
-
-            lfp_timestamps = recording.get_times(segment_index=trial_iterator)
-            # Create relative timestamps (t=0 at trial start)
-            # to match position data convention
-            lfp_timestamps_relative = lfp_timestamps - lfp_timestamps[0]
-
-            # If no channels specified, get all channel IDs from recording
-            if channels is None:
-                channels = [str(ch) for ch in recording.get_channel_ids()]
-
-            trial_lfp_data = {
-                "data": lfp_data,
-                "timestamps": lfp_timestamps,  # Absolute time
-                "timestamps_relative": lfp_timestamps_relative,  # Relative
-                "sampling_rate": sampling_rate,
-                "channels": channels,
-                "filter_range": bandpass_filter,
-            }
-
-            self.lfp_data[trial_iterator] = trial_lfp_data
-
-            # Save to disk for future loading (only if requested)
-            if save_to_disk:
-                lfp_path = self.recording_path / f"lfp_data_trial{trial_iterator}.pkl"
-                try:
-                    with lfp_path.open("wb") as f:
-                        pkl.dump(trial_lfp_data, f)
-
-                    # Print saved file size
-                    file_size = lfp_path.stat().st_size
-                    print(
-                        f"""Saved trial {trial_iterator} LFP data to
-                        {lfp_path} ({file_size / 1e6:.2f} MB)"""
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not save LFP data to disk: {e}")
-
-        except Exception as e:
-            print(f"Error loading LFP data for trial {trial_iterator}: {str(e)}")
-            self.lfp_data[trial_iterator] = None
-
-        finally:
-            # Clean up temporary files
-            try:
-                import shutil
-
-                if Path(f"{temp_folder}.zarr").exists():
-                    shutil.rmtree(f"{temp_folder}.zarr")
-                    print(f"Cleaned up temporary recording: {temp_folder}.zarr")
-            except Exception as e:
-                print(f"Warning: Could not clean up temporary files: {e}")
-
-    def _load_and_save_ttl_data(
-        self, trial_iterator: int, output_flag: bool, save_to_disk: bool = True
-    ):
-        """
-        Helper method to load TTL data from raw files and optionally save to disk.
-
-        Args:
-            trial_iterator: The trial index to load.
-            output_flag: If True, print loading information.
-            save_to_disk: If True, save the loaded data to disk for future use.
-        """
-        path = self.recording_path / self.trial_list[trial_iterator]
-        self.log_loading_info(path, "TTL", output_flag)
-
-        try:
-            ttl_times = {
-                "ttl_timestamps": se.read_openephys_event(path).get_event_times(
-                    channel_id="Neuropixels PXI Sync"
-                )
-            }
-
-            # Get time when recording started and rescale timestamps
-            if not self.analyzer:
-                self._load_ephys(sparse=False)
-
-            recording_start_time = self.analyzer.recording.get_start_time(
-                segment_index=trial_iterator
-            )
-
-            if ttl_times["ttl_timestamps"][0] - recording_start_time < 0:
-                Warning(
-                    f"Recording start time {recording_start_time} is later than "
-                    f"the first TTL pulse {ttl_times['ttl_timestamps'][0]} "
-                    f"setting first TTL pulse to 0"
-                )
-                ttl_times["ttl_timestamps"] = (
-                    ttl_times["ttl_timestamps"] - ttl_times["ttl_timestamps"][0]
-                )
-            else:
-                ttl_times["ttl_timestamps"] -= recording_start_time
-
-            self.sync_data[trial_iterator] = ttl_times
-
-            # Save to disk for future loading (only if requested)
-            if save_to_disk:
-                ttl_path = self.recording_path / f"ttl_data_trial{trial_iterator}.pkl"
-                try:
-                    with ttl_path.open("wb") as f:
-                        pkl.dump(ttl_times, f)
-                    if output_flag:
-                        print(
-                            f"Saved TTL data for trial {trial_iterator} to {ttl_path}"
-                        )
-                except Exception as e:
-                    print(f"Warning: Could not save TTL data to disk: {e}")
-
-        except Exception as e:
-            print(f"Error loading TTL data for trial {trial_iterator}: {str(e)}")
-            self.sync_data[trial_iterator] = {"ttl_timestamps": None}
-
-    def _load_pos_data_by_type(
-        self, tracking_type: str, path: Path, trial_iterator: int, output_flag: bool
-    ) -> dict:
-        """Load position data based on tracking type."""
-        if tracking_type == "axona":
-            return self._load_axona_pos_data(path, trial_iterator, output_flag)
-        elif tracking_type in ["bonsai_roi", "bonsai_leds"]:
-            return self._load_bonsai_pos_data(
-                path, trial_iterator, tracking_type, output_flag
-            )
-        elif (path / "dlc.csv").exists():
-            return self._load_dlc_pos_data(path, output_flag)
-        else:
-            raise ValueError(f"Unsupported tracking type: {tracking_type}")
-
-    def _load_axona_pos_data(
-        self, path: Path, trial_iterator: int, output_flag: bool
-    ) -> dict:
-        """Load position data from Axona format."""
-        from .axona_utils.postprocess_pos_data import postprocess_pos_data
-
-        override_ppm = 615 if "t-maze" in self.trial_list[trial_iterator] else None
-        if override_ppm and output_flag:
-            print("Real PPM artificially set to 615 (t-maze default)")
-
-        raw_pos_data, pos_sampling_rate = self._load_axona_raw_data(
-            path, override_ppm, output_flag, trial_iterator
-        )
-
-        xy_pos, led_pos, led_pix, speed, direction, direction_disp = (
-            postprocess_pos_data(
-                raw_pos_data, self.max_speed, self.smoothing_window_size
-            )
-        )
-
-        # Rescale timestamps to seconds
-        xy_pos.columns /= pos_sampling_rate
-        led_pos.columns /= pos_sampling_rate
-        led_pix.columns /= pos_sampling_rate
-
-        return {
-            "header": raw_pos_data.get("header"),
-            "xy_position": xy_pos,
-            "led_positions": led_pos,
-            "led_pixel_size": led_pix,
-            "speed": speed,
-            "direction": direction,
-            "direction_from_displacement": direction_disp,
-            "pos_sampling_rate": pos_sampling_rate,
-            "scaled_ppm": 400,
-        }
-
-    def _load_axona_raw_data(
-        self,
-        path: Path,
-        override_ppm: int | None,
-        output_flag: bool,
-        trial_iterator: int,
-    ) -> tuple:
-        """Load raw Axona position data from various file formats."""
-        from .axona_utils.axona_preprocessing import pos_from_bin
-        from .axona_utils.load_pos_axona import load_pos_axona
-        from .axona_utils.postprocess_pos_data import write_csv_from_pos
-
-        try:
-            return load_pos_axona(path, override_ppm)
-        except FileNotFoundError:
-            if output_flag:
-                print("No .csv file found, trying to load from .bin file")
-            try:
-                pos_from_bin(path)
-                return load_pos_axona(
-                    path / self.trial_list[trial_iterator], override_ppm
-                )
-            except FileNotFoundError:
-                if output_flag:
-                    print("No .csv or .bin file found, trying to load from .pos file")
-                write_csv_from_pos(path.with_suffix(".pos"))
-                return load_pos_axona(path, override_ppm)
-
-    def _load_bonsai_pos_data(
-        self, path: Path, trial_iterator: int, tracking_type: str, output_flag: bool
-    ) -> dict:
-        """Load position data from Bonsai format."""
-
-        if self.sync_data[trial_iterator] is None:
-            self.load_ttl(trial_iterator, output_flag=False)
-
-        ttl_times = self.sync_data[trial_iterator].get("ttl_timestamps")
-        ttl_freq = (
-            1 / np.mean(np.diff(ttl_times[2:])) if ttl_times is not None else None
-        )
-
-        if tracking_type == "bonsai_roi" and path.with_suffix(".csv").exists():
-            return self._load_bonsai_roi_data(
-                path, trial_iterator, ttl_times, ttl_freq, output_flag
-            )
-        elif tracking_type == "bonsai_leds" and path.with_suffix(".csv").exists():
-            return self._load_bonsai_leds_data(path, trial_iterator, output_flag)
-        else:
-            raise FileNotFoundError(
-                f"No Bonsai position data found for trial {trial_iterator}"
-            )
-
-    def _load_bonsai_roi_data(
-        self,
-        path: Path,
-        trial_iterator: int,
-        ttl_times: np.ndarray,
-        ttl_freq: float,
-        output_flag: bool,
-    ) -> dict:
-        """Load position data from Bonsai ROI format."""
-        from .np2_utils.load_pos_bonsai import load_pos_bonsai_jake
-        from .np2_utils.postprocess_pos_data_np2 import (
-            postprocess_bonsai_jake,
-            sync_bonsai_jake,
-        )
-
-        if output_flag:
-            print(f"Loading raw Bonsai position data from path {path}")
-
-        trial_type = self.session["Trial Type"].iloc[trial_iterator]
-        try:
-            raw_pos_data = load_pos_bonsai_jake(
-                path.with_suffix(".csv"), 400, trial_type
-            )
-        except FileNotFoundError:
-            path = path.with_suffix(".csv").replace("t-maze", "T-maze")
-            if output_flag:
-                print(f"Looking for Bonsai file with name {path}")
-            raw_pos_data = load_pos_bonsai_jake(path, 400, trial_type)
-
-        xy_pos, speed, direction_disp = postprocess_bonsai_jake(
-            raw_pos_data, self.max_speed, self.smoothing_window_size
-        )
-
-        pos_sampling_rate = 1 / np.mean(np.diff(ttl_times))
-        xy_pos, speed, direction_disp = sync_bonsai_jake(
-            xy_pos, ttl_times, pos_sampling_rate, speed, direction_disp
-        )
-
-        return {
-            "xy_position": xy_pos,
-            "speed": speed,
-            "direction_from_displacement": direction_disp,
-            "ttl_times": ttl_times,
-            "ttl_freq": ttl_freq,
-            "pos_sampling_rate": pos_sampling_rate,
-            "scaled_ppm": 400,
-            "header": raw_pos_data["header"],
-            "maze_roi": raw_pos_data["maze_roi"],
-            "maze_state": raw_pos_data["maze_state"],
-        }
-
-    def _load_bonsai_leds_data(
-        self, path: Path, trial_iterator: int, output_flag: bool
-    ) -> dict:
-        """Load position data from Bonsai LEDs format."""
-        from .np2_utils.load_pos_bonsai import load_pos_bonsai_isa
-        from .np2_utils.postprocess_pos_data_np2 import postprocess_bonsai_jake
-
-        if output_flag:
-            print("Loading raw Bonsai position data (Isa format)")
-
-        trial_type = self.session["Trial Type"].iloc[trial_iterator]
-        raw_pos_data = load_pos_bonsai_isa(path.with_suffix(".csv"), 400, trial_type)
-
-        xy_pos, speed, direction_disp = postprocess_bonsai_jake(
-            raw_pos_data, self.max_speed, self.smoothing_window_size
-        )
-
-        return {
-            "xy_position": xy_pos,
-            "speed": speed,
-            "direction_from_displacement": direction_disp,
-            "pos_sampling_rate": raw_pos_data["sampling_rate"],
-            "scaled_ppm": 400,
-        }
-
-    def _load_dlc_pos_data(self, path: Path, output_flag: bool) -> dict:
-        """Load position data from DeepLabCut format."""
-        from .np2_utils.load_pos_dlc import load_pos_dlc
-        from .np2_utils.postprocess_pos_data_np2 import postprocess_dlc_data
-
-        if output_flag:
-            print("Loading DLC position data")
-
-        raw_pos_data = load_pos_dlc(path, 400)
-        raw_pos_data["header"]["tracked_point_angle_1"] = 0
-
-        xy_pos, tracked_points, speed, direction, direction_disp = postprocess_dlc_data(
-            raw_pos_data, self.max_speed, self.smoothing_window_size
-        )
-
-        return {
-            "header": raw_pos_data["header"],
-            "xy_position": xy_pos,
-            "tracked_points": tracked_points,
-            "speed": speed,
-            "direction": direction,
-            "direction_from_displacement": direction_disp,
-            "bonsai_timestamps": raw_pos_data["bonsai_timestamps"],
-            "camera_timestamps": raw_pos_data["camera_timestamps"],
-            "scaled_ppm": 400,
-        }
 
     def _load_ephys(self, keep_good_only=False, sparse=True, from_disk=True):
         """
