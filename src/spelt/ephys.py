@@ -1319,6 +1319,22 @@ class ephys:  # noqa: N801
 
             recording_list.append(recording)
 
+        # Check if sorting has been manually curated in Phy
+        cluster_info_path = Path(self.sorting_path) / "cluster_info.tsv"
+        if not cluster_info_path.exists():
+            raise FileNotFoundError(
+                f"Manual curation required: cluster_info.tsv not found at "
+                f"{self.sorting_path}.\n\n"
+                f"Please complete these steps:\n"
+                f"  1. Open the sorting in Phy GUI:\n"
+                f"     phy template-gui {self.sorting_path}\n"
+                f"  2. Manually curate units (label as 'good', 'mua', or 'noise')\n"
+                f"  3. Save your curation (Ctrl+S or File → Save)\n"
+                f"  4. Close Phy\n"
+                f"  5. Re-run this preprocessing step\n\n"
+                f"Phy will create cluster_info.tsv when you save your curation."
+            )
+
         # Load sorting
         if keep_good_only:
             sorting = se.read_phy(
@@ -1326,6 +1342,18 @@ class ephys:  # noqa: N801
             )
         else:
             sorting = se.read_phy(f"{self.sorting_path}")
+
+        # Check if any units remain after filtering
+        if sorting.get_num_units() == 0:
+            filter_msg = " after filtering for good units" if keep_good_only else ""
+            raise ValueError(
+                f"No units found in sorting data{filter_msg}. "
+                f"Sorting path: {self.sorting_path}. "
+                "Please check that spike sorting has been performed and "
+                "units have been curated. "
+                "If using keep_good_only=True, ensure at least one unit is "
+                "labeled as 'good' in Phy."
+            )
 
         multi_segment_sorting = si.split_sorting(sorting, recording_list)
 
