@@ -2,143 +2,93 @@ from pathlib import Path
 
 import numpy as np
 import spikeinterface as si
-import spikeinterface.extractors as se
-import spikeinterface.preprocessing as spre
 
-from spelt.axona_utils.load_ephys import load_axona_ephys
-from spelt.np2_utils.load_ephys import load_np2_onebox, load_np2_pcie
-
-from .utils import gs_to_df
+from .loaders.session_loader import extract_session_metadata, load_session_from_sheet
 
 si.set_global_job_kwargs(n_jobs=-2)
 
 
 class ephys:  # noqa: N801
     """
-    A class to manage ephys data, including metadata, position, LFP, and spike data
-    recorded from (currently):
-    - raw DACQ recordings sorted with Kilosort 2 and curated with phy
-    - Neuropixels 2 recordings acquired with OpenEphys, sorted with Kilosort 4 and
-      curated with phy, with video tracking data from Bonsai
+    Manage ephys data including metadata, position, LFP, and spike data.
 
-    Assumes a basic file structure of path_to_data/animal/YYYY-MM-DD/ for each session
+    Supports:
+        - Axona/DACQ recordings sorted with Kilosort 2, curated with Phy
+        - Neuropixels 2 recordings (OpenEphys), sorted with Kilosort 4, curated with Phy
+        - Video tracking from Bonsai and DeepLabCut
 
-    Usage:
-        # Initialize the class with recording type and optional path to session.
-        obj = ephys('nexus', 'path/to/recording/data/animalID/date')
-        obj = ephys('nexus') will prompt a box to select the recording folder
+    Assumes file structure: path_to_data/animal/YYYY-MM-DD/
 
-
-        # Load metadata for a list of trials.
-        obj.load_metadata([0, 2, 3])
-
-        # Load position data for a list of trials.
+    Example:
+        obj = ephys(path='path/to/animal/date', sheet_url='https://...')
         obj.load_pos([0, 1, 2])
-
-        # Load LFP data for a list of trials with a specific sampling rate and channels.
-        obj.load_lfp([0, 1, 2], sampling_rate = 1000, channels = [0, 1, 2])
-
-        # Load spike data for the session.
+        obj.load_lfp([0, 1, 2], sampling_rate=1000, channels=[0, 1, 2])
         obj.load_spikes()
 
     Attributes:
-        recording_type (str): Type of the recording.
-            Current options: 'nexus', 'np2_openephys'
-
-        path (str): Path to the specific animal and date recording folder
-        sheet_url (str): URL of the Google Sheet containing additional metadata
-        area (str): Brain area targeted for recording (optional)
-
-        recording_path (str): Path to the recording data folder
-        sorting_path (str): Path to the sorting data folder
-
-        date (str): Date of the recording in the format 'YYYY-MM-DD'
-        date_short (str): Date of the recording in the format 'YYMMDD'
-        animal (str): Animal ID
-
-        age (int): Age of the animal at the time of recording
-        probe_type (str): Type of probe used for recording
-        area (str): Brain area targeted for recording (optional)
-
-        session (pd.DataFrame): Dataframe with session information.
-        trial_list (list): List containing the names of each trial.
-        trial_iterators (list): List containing the indices of each trial.
-
-        analyzer (SortingAnalyzer): SortingAnalyzer object for the whole session
-
-        metadata (list): List to store metadata for each trial.
-        lfp_data (list): List to store LFP data for each trial.
-        pos_data (list): List to store position data for each trial.
-        sync_data (list): List to store synchronization data for each trial.
-        spike_data (dict): Dictionary to store spike data for each trial.
-
-        max_speed (int): Maximum speed constant for position processing.
-        smoothing_window_size (int): Smoothing window size for position processing.
+        recording_type: Recording system ('nexus', 'NP2_openephys', 'NP2_onebox')
+        recording_path: Path to recording data folder
+        sorting_path: Path to sorting data folder
+        date: Recording date (YYYY-MM-DD format)
+        date_short: Recording date (YYMMDD format)
+        animal: Animal ID
+        age: Animal age at recording time
+        probe_type: Probe type identifier
+        area: Brain area (e.g., 'CA1')
+        session: DataFrame with session info from Google Sheets
+        trial_list: List of trial names
+        trial_iterators: List of trial indices
+        analyzer: SortingAnalyzer object for the session
+        lfp_data: List storing LFP data per trial
+        pos_data: List storing position data per trial
+        sync_data: List storing TTL/sync data per trial
+        spike_data: Dictionary storing spike data for session
+        max_speed: Maximum speed for position filtering (default: 5 m/s)
+        smoothing_window_size: Window size for position smoothing (default: 3)
     """
 
     def __init__(self, path, sheet_url, analyzer=None, area=None, pos_only=False):
         """
         Initialize the ephys object.
 
-        Parameters:
-        path (str): The path to the recording.
-        sheet_url (str): URL of the Google Sheet containing additional metadata.
-        analyzer (SortingAnalyzer, optional): A SortingAnalyzer object for the session.
-            Default is None, a new one will be created on _load_ephys() call
-        area (str, optional): The brain area targeted for recording. Default is None.
-        pos_only (bool, optional): If True, only loads position data. Default is False.
+        Args:
+            path: Path to the recording directory
+            sheet_url: URL of the Google Sheet with session metadata
+            analyzer: Pre-computed SortingAnalyzer object (created if None)
+            area: Brain area targeted for recording (e.g., 'CA1')
+            pos_only: If True, only loads position data (skips spike loading checks)
         """
-
         self.recording_path = Path(path)
 
-        # Get date and animal ID from path
+        # Parse date and animal ID from path
         self.date = self.recording_path.parts[-1]
         self.date_short = f"{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}"
         self.animal = self.recording_path.parts[-2]
 
-        # Get session info from Google Sheet
+        # Load session metadata from Google Sheet
         try:
-            df = gs_to_df(sheet_url)
-            df = df[df["Include"] == "Y"]
-            df = df[df["Areas"] == area] if area else df
-            session = df.loc[df["Session"] == f"{self.animal}_{self.date_short}"]
-            if session.empty:
-                raise ValueError(
-                    f"Session {self.animal}_{self.date_short} not found in Google Sheet"
-                )
-            if "Format" in session.columns and not pos_only:
-                session = session[
-                    session["Format"] != "thresholded"
-                ]  # Drops thresholded Axona recordings unless pos_only=True
-                if session.empty:
-                    raise ValueError(
-                        f"Session {self.animal}_{self.date_short} has no "
-                        f"non-thresholded recordings (all marked as thresholded)"
-                    )
-            self.session = session
+            session = load_session_from_sheet(
+                sheet_url, self.animal, self.date_short, area, pos_only
+            )
         except Exception as e:
-            print("Google Sheet not found, please specify a valid URL", e)
-            raise e
+            print(f"Failed to load session from Google Sheet: {e}")
+            raise
 
-        # Load some metadata from the Google Sheet
-        self.trial_list = session.loc[:, "trial_name"].to_list()
-        self.trial_types = session.loc[:, "Trial Type"].to_list()
-        self.tracking_types = session.loc[:, "tracking_type"].to_list()
+        # Store session DataFrame
+        self.session = session
 
-        self.age = (
-            int(session.loc[:, "Age"].iloc[0]) if "Age" in session.columns else None
-        )
-        self.probe_type = (
-            session.loc[:, "probe_type"].iloc[0]
-            if "probe_type" in session.columns
-            else None
-        )
-        self.area = (
-            session.loc[:, "Areas"].iloc[0] if "Areas" in session.columns else None
-        )
-        self.recording_type = session.loc[:, "recording_type"].iloc[0]
+        # Extract trial information
+        self.trial_list = session["trial_name"].to_list()
+        self.trial_types = session["Trial Type"].to_list()
+        self.tracking_types = session["tracking_type"].to_list()
+        self.trial_iterators = list(range(len(self.trial_list)))
 
-        # Set sorting path based on recording type
+        # Extract session metadata
+        self.age, self.probe_type, self.area, self.recording_type = (
+            extract_session_metadata(session)
+        )
+
+        # Configure sorting path based on recording type
         if self.recording_type == "nexus":
             self.sorting_path = (
                 self.recording_path / f"{self.date_short}_sorting_ks2_custom"
@@ -149,25 +99,23 @@ class ephys:  # noqa: N801
                 / f"{self.date_short}_{self.area}_sorting_ks4/sorter_output"
             )
         else:
-            raise ValueError("Recording type not recognised from sheet")
+            raise ValueError(f"Unsupported recording type: {self.recording_type}")
 
-        # Collect each trial number
-        self.trial_iterators = [i for i, _ in enumerate(self.trial_list)]
-
+        # Set analyzer
         self.analyzer = analyzer
 
-        # Initialise data variables
+        # Initialize data storage
         self.spike_data = {}
         self.unit_spikes = None
         self.lfp_data = [None] * len(self.trial_list)
         self.sync_data = [None] * len(self.trial_list)
         self.pos_data = [None] * len(self.trial_list)
 
-        # Set constants for position processing
+        # Set position processing parameters
         self.max_speed = 5
         self.smoothing_window_size = 3
 
-        # Map data types to their attribute names
+        # Map data types to attribute names
         self._data_type_map = {
             "position": "pos_data",
             "lfp": "lfp_data",
@@ -179,29 +127,22 @@ class ephys:  # noqa: N801
         self,
         unit_ids: list | None = None,
         quality: list[str] | None = None,
-        load_templates=False,
-        load_waveforms=False,
-        load_channels=False,
         from_disk=True,
     ):
         """
-        Loads the spike data for the session.
-        Currently from Kilosort 2/4 output files using the spikeinterface package
+        Load spike data for the session from Kilosort output.
 
         Args:
-            unit_ids: A list of unit IDs to load. Default is all
-            quality: A list of quality labels to load. Default is all
-            load_templates (bool): If True, loads the templates for the specified units.
-            load_waveforms (bool): If True, loads the waveforms for the specified units.
-            load_channels (bool): If True, loads the peak channels for each unit.
+            unit_ids: Unit IDs to load (default: all units)
+            quality: Quality labels to filter by (e.g., ['good'], default: all)
+            from_disk: If True, loads pre-computed analyzer from disk
 
         Populates:
-            self.spike_data (dict): A dictionary that stores spike data for the session.
-                The spike data is stored in the following keys:
-                    - spike_times: A list of spike times in seconds
-                    - spike_clusters: A list of cluster IDs for each spike
-                    - spike_trial: A list of trial IDs for each spike
-                    - sampling_rate: The sampling rate of the spike data
+            self.spike_data (dict): Spike data with keys:
+                - 'spike_times': Spike times in seconds
+                - 'spike_clusters': Cluster ID for each spike
+                - 'spike_trial': Trial index for each spike
+                - 'sampling_rate': Sampling rate in Hz
         """
 
         if self.analyzer is None:
@@ -232,20 +173,17 @@ class ephys:  # noqa: N801
         self.spike_data["spike_trial"] = spike_vector["segment_index"]
         self.spike_data["sampling_rate"] = sampling_rate
 
-        self.spike_data["templates"] = (
-            self._load_templates(unit_ids) if load_templates else None
-        )
-        self.spike_data["waveforms"] = (
-            self._load_waveforms(unit_ids) if load_waveforms else None
-        )
-        self.spike_data["channels"] = (
-            self._load_extremum_channels(unit_ids) if load_channels else None
-        )
-
     def load_single_unit_spike_trains(self, unit_ids=None, sparse=True):
         """
-        Returns the spike trains from all trials for "good" units
-        Format is {trial: {unit: spike_train}}
+        Load spike trains for specified units across all trials.
+
+        Args:
+            unit_ids: Unit IDs to load (default: all good units)
+            sparse: If True, uses sparse representation for efficiency
+
+        Returns:
+            Dictionary with format {trial: {unit: spike_train}}
+            where spike_train is an array of spike times in seconds
         """
         if self.analyzer is None:
             self._load_ephys(keep_good_only=True, sparse=sparse)
@@ -270,15 +208,14 @@ class ephys:  # noqa: N801
         """
         Load pyramidal cell IDs from clusters_inc.npy file.
 
-        Returns the cluster IDs that passed pyramidal cell filtering criteria:
+        Returns cluster IDs that passed pyramidal cell filtering criteria:
         - Mean FR < 10 Hz
         - Mean spike width > 500us
         - Burst index < 25ms
 
         Returns:
-        --------
-        np.ndarray : Array of cluster IDs identified as pyramidal cells
-                     Returns empty array if file not found
+            Array of cluster IDs identified as pyramidal cells.
+            Returns empty array if file not found.
         """
         clusters_inc_file = self.recording_path / "clusters_inc.npy"
 
@@ -293,15 +230,14 @@ class ephys:  # noqa: N801
         """
         Load place cell IDs from place_cells.npy file.
 
-        Returns the cluster IDs that showed significant spatial selectivity based on:
+        Returns cluster IDs with significant spatial selectivity based on:
         - Spatial information (bits/spike)
         - Statistical testing with population shuffles
         - Multiple comparison correction
 
         Returns:
-        --------
-        np.ndarray : Array of cluster IDs identified as place cells
-                     Returns empty array if file not found
+            Array of cluster IDs identified as place cells.
+            Returns empty array if file not found.
         """
         place_cells_file = self.recording_path / "place_cells.npy"
 
@@ -450,23 +386,18 @@ class ephys:  # noqa: N801
         from_preprocessed=True,
     ):
         """
-        Loads the LFP (Local Field Potential) data for specified trials.
-        Currently from raw Dacq .bin files using the spikeinterface package
-        Masks clipped values and scales to microvolts based on the gain in the .set file
+        Load LFP (Local Field Potential) data for specified trials.
 
         Args:
-            trial_list: The index of the trial(s) to load. Default is all
-            sampling_rate: The desired sampling rate for the LFP data
-            channels: A list of channel IDs to load. If None, loads all channels.
-                    If specified, subsets data to only those channels.
-            reload_flag (bool, optional): if true, forces reloading of data.
-                If false, only loads data for trials with no LFP data loaded
-            bandpass_filter: apply bandpass filter with min and max frequency.
-            from_preprocessed (bool): If True, loads preprocessed LFP data from disk.
+            trial_list: Trial indices to load (default: all)
+            sampling_rate: Desired sampling rate in Hz (default: 1000)
+            channels: Channel IDs to load (default: all channels)
+            reload_flag: If True, forces reloading of data
+            bandpass_filter: Tuple of (min_freq, max_freq) for filtering
+            from_preprocessed: If True, loads from disk cache when available
 
         Populates:
-            self.lfp_data (list): A list that stores LFP data for each trial.
-                The LFP data for the specified trial is added at the given index.
+            self.lfp_data (list): LFP data for each trial at the given index
         """
         from .loaders.cache import load_pickle, save_pickle
         from .loaders.lfp_loader import (
@@ -587,18 +518,16 @@ class ephys:  # noqa: N801
         from_preprocessed=True,
     ):
         """
-        Load TTL data for specified trials from OpenEphys recording
+        Load TTL/sync data for specified trials from OpenEphys recording.
 
         Args:
-            trial_list: The index of the trial(s) for which TTL data is to be loaded.
-            output_flag: if True, print a statement when loading the TTL data
-            reload_flag: if True, forces reloading of data. If false, only loads data
-                for trials with no TTL data loaded
-            from_preprocessed (bool): If True, loads preprocessed TTL data from disk.
+            trial_list: Trial indices to load (default: all)
+            output_flag: If True, print loading messages
+            reload_flag: If True, forces reloading of data
+            from_preprocessed: If True, loads from disk cache when available
 
         Populates:
-            self.sync_data (list): A list that stores TTL data for each trial.
-                The TTL data for the specified trial is added at the given index.
+            self.sync_data (list): TTL data for each trial at the given index
         """
         from .loaders.cache import load_pickle, save_pickle
         from .loaders.ttl_loader import load_ttl_data
@@ -666,23 +595,18 @@ class ephys:  # noqa: N801
         from_preprocessed: bool = True,
     ):
         """
-        Load theta phase data for specified trials and append to existing LFP data.
+        Load theta phase data and append to existing LFP data.
 
         Args:
-            trial_list: The index of the trial(s) to load. Default is all
-            channels: A list of channel IDs to use. If None, uses all available channels
-                    If specified, subsets data to only those channels.
-            clip_value: Clipping value for LFP data (32000 for Axona, None for others)
-            output_flag: If True, print loading information
+            trial_list: Trial indices to load (default: all)
+            channels: Channel IDs to use (default: all available channels)
+            clip_value: Clipping value for LFP (32000 for Axona, None for others)
+            output_flag: If True, print loading messages
             reload_flag: If True, forces reloading of data
-            from_preprocessed: If True, loads preprocessed theta phase data from disk
+            from_preprocessed: If True, loads from disk cache when available
 
         Modifies:
-            self.lfp_data[trial]['theta_phase']: Phase values for each channel
-            self.lfp_data[trial]['cycle_numbers']: Cycle numbers for each channel
-            self.lfp_data[trial]['theta_freqs']: Peak theta frequencies for each channel
-
-        Also subsets all LFP data to requested channels if specified.
+            self.lfp_data[trial]: Adds 'theta_phase', 'cycle_numbers', 'theta_freqs'
         """
         from .loaders.cache import load_pickle, save_pickle
         from .loaders.lfp_loader import subset_lfp_channels
@@ -828,19 +752,33 @@ class ephys:  # noqa: N801
 
         return self.lfp_data
 
-    def _load_ephys(self, keep_good_only=False, sparse=True, from_disk=True):
+    def load_ephys(self, keep_good_only=False, sparse=True, from_disk=True):
         """
-        Make a SortingAnalyzer for extracting spikes and LFP
+        Create or load SortingAnalyzer for spike extraction and LFP loading.
+
+        Args:
+            keep_good_only: If True, only loads units labeled as 'good' in Phy
+            sparse: If True, uses sparse representation for efficiency
+            from_disk: If True, loads pre-computed analyzer from disk if available
+
+        Raises:
+            FileNotFoundError: If sorting_analyzer.zarr not found (when from_disk=True)
+                or cluster_info.tsv not found (incomplete Phy curation)
+            ValueError: If no units remain after filtering
         """
-        # Load sorting analyzer from disk if it exists. Raw recording will not be loaded
-        # Makes a copy of the disk analyzer to avoid modifying the original
+        from .loaders.ephys_loader import (
+            create_sorting_analyzer,
+            load_sorting_data,
+            load_trial_recordings,
+            validate_sorting_curation,
+        )
+
+        # Try loading from disk first
         if from_disk:
-            if (self.recording_path / "sorting_analyzer.zarr").exists():
-                disk_analyzer = si.load_sorting_analyzer(
-                    self.recording_path / "sorting_analyzer.zarr"
-                )
+            analyzer_path = self.recording_path / "sorting_analyzer.zarr"
+            if analyzer_path.exists():
+                disk_analyzer = si.load_sorting_analyzer(analyzer_path)
                 self.analyzer = disk_analyzer.copy()
-                # self.raw_recording = self.analyzer.recording
                 return
             else:
                 raise FileNotFoundError(
@@ -848,123 +786,33 @@ class ephys:  # noqa: N801
                     "Please run preprocessing script to create it."
                 )
 
-        recording_list = []
-        # Create list of recording objects
-        for trial_iterator in self.trial_iterators:
-            if self.recording_type == "nexus":
-                path = self.recording_path / f"{self.trial_list[trial_iterator]}.set"
-                recording = load_axona_ephys(path, self.probe_type)
-
-            elif self.probe_type == "NP2_openephys":
-                path = self.recording_path / self.trial_list[trial_iterator] / self.area
-                if self.recording_type == "NP2_openephys":
-                    recording = load_np2_pcie(path)
-                elif self.recording_type == "NP2_onebox":
-                    recording = load_np2_onebox(path)
-
-            else:
-                raise ValueError(
-                    f"Recording type {self.recording_type}"
-                    " or probe type {self.probe_type} not implementes"
-                )
-
-            recording_list.append(recording)
-
-        # Check if sorting has been manually curated in Phy
-        cluster_info_path = Path(self.sorting_path) / "cluster_info.tsv"
-        if not cluster_info_path.exists():
-            raise FileNotFoundError(
-                f"Manual curation required: cluster_info.tsv not found at "
-                f"{self.sorting_path}.\n\n"
-                f"Please complete these steps:\n"
-                f"  1. Open the sorting in Phy GUI:\n"
-                f"     phy template-gui {self.sorting_path}\n"
-                f"  2. Manually curate units (label as 'good', 'mua', or 'noise')\n"
-                f"  3. Save your curation (Ctrl+S or File → Save)\n"
-                f"  4. Close Phy\n"
-                f"  5. Re-run this preprocessing step\n\n"
-                f"Phy will create cluster_info.tsv when you save your curation."
-            )
-
-        # Load sorting
-        if keep_good_only:
-            sorting = se.read_phy(
-                f"{self.sorting_path}", exclude_cluster_groups=["noise", "mua"]
-            )
-        else:
-            sorting = se.read_phy(f"{self.sorting_path}")
-
-        # Check if any units remain after filtering
-        if sorting.get_num_units() == 0:
-            filter_msg = " after filtering for good units" if keep_good_only else ""
-            raise ValueError(
-                f"No units found in sorting data{filter_msg}. "
-                f"Sorting path: {self.sorting_path}. "
-                "Please check that spike sorting has been performed and "
-                "units have been curated. "
-                "If using keep_good_only=True, ensure at least one unit is "
-                "labeled as 'good' in Phy."
-            )
-
-        multi_segment_sorting = si.split_sorting(sorting, recording_list)
-
-        multi_segment_recording = si.append_recordings(recording_list)
-
-        # Save raw recording for LFP extraction
-        self.raw_recording = multi_segment_recording
-
-        # Highpass filter recording
-        multi_segment_recording: si.BaseRecording = spre.highpass_filter(
-            multi_segment_recording, 300
+        # Load from raw data
+        recording_list = load_trial_recordings(
+            recording_path=self.recording_path,
+            trial_list=self.trial_list,
+            trial_iterators=self.trial_iterators,
+            recording_type=self.recording_type,
+            probe_type=self.probe_type,
+            area=self.area,
         )
 
-        # Make a single multisegment SortingAnalyzer for the whole session
-        self.analyzer = si.create_sorting_analyzer(
-            multi_segment_sorting,
-            multi_segment_recording,
+        validate_sorting_curation(Path(self.sorting_path))
+
+        sorting = load_sorting_data(
+            sorting_path=Path(self.sorting_path), keep_good_only=keep_good_only
+        )
+
+        self.analyzer, self.raw_recording = create_sorting_analyzer(
+            sorting=sorting,
+            recording_list=recording_list,
+            recording_path=self.recording_path,
             sparse=sparse,
-            format="zarr",
-            folder=self.recording_path / "sorting_analyzer",
-            return_scaled=True,
-            overwrite=True,
         )
 
-    def _load_templates(self, clusters_to_load=None):
-        if not self.analyzer.has_extension("waveforms"):
-            self.analyzer.compute(["random_spikes", "waveforms"])
-
-        if not self.analyzer.has_extension("templates"):
-            self.analyzer.compute("templates")
-
-        templates = self.analyzer.get_extension("templates").get_data()
-        if clusters_to_load is not None:
-            templates = templates[clusters_to_load]
-        return templates
-
-    def _load_waveforms(self, clusters_to_load=None):
-        if not self.analyzer.has_extension("waveforms"):
-            self.analyzer.compute(["random_spikes", "waveforms"])
-
-        waveforms = self.analyzer.get_extension("waveforms").get_data(outputs="by_unit")
-        if clusters_to_load is not None:
-            waveforms = waveforms[clusters_to_load]
-        return waveforms
-
-    def _load_extremum_channels(self, clusters_to_load=None):
-        # try loading from sorting properties
-        try:
-            extremum_channels = self.analyzer.sorting.get_property("ch")
-            unit_ids = self.analyzer.sorting.get_unit_ids()
-            # make extremum channels a dict
-            extremum_channels = dict(zip(unit_ids, extremum_channels))
-        except KeyError:
-            if not self.analyzer.has_extension("waveforms"):
-                self.analyzer.compute(["random_spikes", "waveforms"])
-            if not self.analyzer.has_extension("templates"):
-                self.analyzer.compute("templates")
-
-            extremum_channels = si.get_template_extremum_channel(self.analyzer)
-        # if clusters_to_load is specified, only return those
-        if clusters_to_load is not None:
-            extremum_channels = {k: extremum_channels[k] for k in clusters_to_load}
-        return extremum_channels
+    def _load_ephys(self, keep_good_only=False, sparse=True, from_disk=True):
+        """
+        Backward-compatible alias for load_ephys(). New code should use load_ephys().
+        """
+        return self.load_ephys(
+            keep_good_only=keep_good_only, sparse=sparse, from_disk=from_disk
+        )
