@@ -111,7 +111,7 @@ def load_sorting_data(
     # Load sorting with optional filtering
     if keep_good_only:
         sorting = se.read_phy(
-            str(sorting_path), exclude_cluster_groups=["noise", "mua", "unclassified"]
+            str(sorting_path), exclude_cluster_groups=["noise", "mua", "unsorted"]
         )
     else:
         sorting = se.read_phy(str(sorting_path))
