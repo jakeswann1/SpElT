@@ -3,10 +3,11 @@
 from pathlib import Path
 
 import numpy as np
-import spikeinterface.extractors as se
 
 
-def load_ttl_data(trial_path: Path, recording_start_time: float) -> dict:
+def load_ttl_data(
+    trial_path: Path, recording_start_time: float, recording_type: str
+) -> dict:
     """
     Load TTL/sync data from OpenEphys recording.
 
@@ -28,11 +29,11 @@ def load_ttl_data(trial_path: Path, recording_start_time: float) -> dict:
     Exception
         If TTL loading fails
     """
+    from spelt.np2_utils.load_ephys import load_np2_ttl
+
     try:
         # Load TTL events from OpenEphys
-        ttl_timestamps = se.read_openephys_event(trial_path).get_event_times(
-            channel_id="Neuropixels PXI Sync"
-        )
+        ttl_timestamps = load_np2_ttl(trial_path, recording_type)
 
         # Rescale timestamps relative to recording start
         if ttl_timestamps[0] - recording_start_time < 0:

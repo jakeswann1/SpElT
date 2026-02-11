@@ -33,7 +33,7 @@ def load_trial_recordings(
         ValueError: If recording type or probe type is not supported
     """
     from spelt.axona_utils.load_ephys import load_axona_ephys
-    from spelt.np2_utils.load_ephys import load_np2_onebox, load_np2_pcie
+    from spelt.np2_utils.load_ephys import load_np2_recording
 
     recording_list = []
 
@@ -45,9 +45,9 @@ def load_trial_recordings(
         elif probe_type == "NP2_openephys":
             path = recording_path / trial_list[trial_iterator] / area
             if recording_type == "NP2_openephys":
-                recording = load_np2_pcie(path)
+                recording = load_np2_recording(path, method="pcie")
             elif recording_type == "NP2_onebox":
-                recording = load_np2_onebox(path)
+                recording = load_np2_recording(path, method="onebox")
             else:
                 raise ValueError(
                     f"Recording type {recording_type} not implemented "

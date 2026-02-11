@@ -532,7 +532,7 @@ class ephys:  # noqa: N801
         from .loaders.cache import load_pickle, save_pickle
         from .loaders.ttl_loader import load_ttl_data
 
-        if self.recording_type != "NP2_openephys":
+        if self.probe_type != "NP2_openephys":
             print("TTL data only available for NP2_openephys recordings")
             return
 
@@ -571,7 +571,7 @@ class ephys:  # noqa: N801
                 segment_index=trial_iterator
             )
 
-            ttl_data = load_ttl_data(path, recording_start_time)
+            ttl_data = load_ttl_data(path, recording_start_time, self.recording_type)
             self.sync_data[trial_iterator] = ttl_data
 
             # Save to cache if requested

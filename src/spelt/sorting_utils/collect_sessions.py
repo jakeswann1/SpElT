@@ -2,7 +2,7 @@ from pathlib import Path
 
 from spelt.axona_utils.axona_preprocessing import pos_from_bin, preprocess_axona
 from spelt.axona_utils.load_ephys import load_axona_ephys
-from spelt.np2_utils.load_ephys import load_np2_onebox, load_np2_pcie
+from spelt.np2_utils.load_ephys import load_np2_recording
 
 
 def parse_session_info(session):
@@ -24,9 +24,9 @@ def load_and_process_recording(
 
         # Select appropriate loader based on recording type
         if recording_type == "NP2_openephys":
-            return load_np2_pcie(str(path))
+            return load_np2_recording(str(path), method="pcie")
         elif recording_type == "NP2_onebox":
-            return load_np2_onebox(str(path))
+            return load_np2_recording(str(path), method="onebox")
         else:
             raise ValueError(f"Unknown recording type: {recording_type}")
 
