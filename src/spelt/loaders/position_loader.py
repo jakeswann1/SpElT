@@ -178,7 +178,7 @@ def load_bonsai_roi_position(
     dict
         Position data dictionary
     """
-    from spelt.np2_utils.load_pos_bonsai import load_pos_bonsai_jake
+    from spelt.np2_utils.load_pos_bonsai import load_pos_bonsai_roi
     from spelt.np2_utils.postprocess_pos_data_np2 import (
         postprocess_bonsai_jake,
         sync_bonsai_jake,
@@ -200,12 +200,12 @@ def load_bonsai_roi_position(
 
     # Try loading with standard path, fallback to T-maze capitalization
     try:
-        raw_pos_data = load_pos_bonsai_jake(path.with_suffix(".csv"), 400, trial_type)
+        raw_pos_data = load_pos_bonsai_roi(path.with_suffix(".csv"), 400, trial_type)
     except FileNotFoundError:
         path = path.with_suffix(".csv").replace("t-maze", "T-maze")
         if output_flag:
             print(f"Looking for Bonsai file with name {path}")
-        raw_pos_data = load_pos_bonsai_jake(path, 400, trial_type)
+        raw_pos_data = load_pos_bonsai_roi(path, 400, trial_type)
 
     # Postprocess position data
     xy_pos, speed, direction_disp = postprocess_bonsai_jake(
@@ -260,13 +260,13 @@ def load_bonsai_leds_position(
     dict
         Position data dictionary
     """
-    from spelt.np2_utils.load_pos_bonsai import load_pos_bonsai_isa
+    from spelt.np2_utils.load_pos_bonsai import load_pos_bonsai_leds
     from spelt.np2_utils.postprocess_pos_data_np2 import postprocess_bonsai_jake
 
     if output_flag:
-        print("Loading raw Bonsai position data (Isa format)")
+        print("Loading raw Bonsai position data (LED tracking)")
 
-    raw_pos_data = load_pos_bonsai_isa(path.with_suffix(".csv"), 400, trial_type)
+    raw_pos_data = load_pos_bonsai_leds(path.with_suffix(".csv"), 400, trial_type)
 
     xy_pos, speed, direction_disp = postprocess_bonsai_jake(
         raw_pos_data, max_speed, smoothing_window
