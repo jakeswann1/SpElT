@@ -45,7 +45,7 @@ def load_session_from_sheet(
 
 def extract_session_metadata(
     session: pd.DataFrame,
-) -> tuple[int | None, str | None, str | None, str]:
+) -> tuple[str, str, int | None, str | None, str | None, str]:
     """
     Extract key metadata fields from session DataFrame.
 
@@ -53,15 +53,19 @@ def extract_session_metadata(
         session: Session DataFrame loaded from Google Sheets
 
     Returns:
-        Tuple of (age, probe_type, area, recording_type):
+        Tuple of (animal, date, age, probe_type, area, recording_type):
+            - animal: Animal ID (always present)
+            - date: Recording date (always present)
             - age: Animal age at recording (None if not in DataFrame)
             - probe_type: Probe type identifier (None if not in DataFrame)
             - area: Brain area (None if not in DataFrame)
             - recording_type: Recording system type (always present)
 
     Raises:
-        KeyError: If recording_type is not in DataFrame
+        KeyError: If required columns are not in DataFrame
     """
+    animal = session["Animal"].iloc[0]
+    date = session["Date"].iloc[0]
     age = int(session["Age"].iloc[0]) if "Age" in session.columns else None
     probe_type = (
         session["probe_type"].iloc[0] if "probe_type" in session.columns else None
@@ -69,4 +73,4 @@ def extract_session_metadata(
     area = session["Areas"].iloc[0] if "Areas" in session.columns else None
     recording_type = session["recording_type"].iloc[0]
 
-    return age, probe_type, area, recording_type
+    return animal, date, age, probe_type, area, recording_type

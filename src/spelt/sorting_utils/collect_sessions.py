@@ -24,9 +24,9 @@ def load_and_process_recording(
 
         # Select appropriate loader based on recording type
         if recording_type == "NP2_openephys":
-            return load_np2_recording(str(path), method="pcie")
+            return load_np2_recording(path, method="pcie")
         elif recording_type == "NP2_onebox":
-            return load_np2_recording(str(path), method="onebox")
+            return load_np2_recording(path, method="onebox")
         else:
             raise ValueError(f"Unknown recording type: {recording_type}")
 

@@ -60,15 +60,27 @@ class ephys:  # noqa: N801
         """
         self.recording_path = Path(path)
 
-        # Parse date and animal ID from path
-        self.date = self.recording_path.parts[-1]
-        self.date_short = f"{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}"
-        self.animal = self.recording_path.parts[-2]
+        # Parse date and animal ID from path (for session lookup)
+        path_date = self.recording_path.parts[-1]
+        path_animal = self.recording_path.parts[-2]
+
+        # Handle both date formats: YYYY-MM-DD (10 chars) and YYMMDD (6 chars)
+        if len(path_date) == 10 and "-" in path_date:
+            # Date is in YYYY-MM-DD format, convert to YYMMDD for lookup
+            date_short_for_lookup = f"{path_date[2:4]}{path_date[5:7]}{path_date[8:10]}"
+        elif len(path_date) == 6 and path_date.isdigit():
+            # Date is already in YYMMDD format
+            date_short_for_lookup = path_date
+        else:
+            raise ValueError(
+                f"Unrecognized date format: {path_date}. "
+                "Expected YYYY-MM-DD (e.g., '2026-02-11') or YYMMDD (e.g., '260211')"
+            )
 
         # Load session metadata from Google Sheet
         try:
             session = load_session_from_sheet(
-                sheet_url, self.animal, self.date_short, area, pos_only
+                sheet_url, path_animal, date_short_for_lookup, area, pos_only
             )
         except Exception as e:
             print(f"Failed to load session from Google Sheet: {e}")
@@ -83,10 +95,28 @@ class ephys:  # noqa: N801
         self.tracking_types = session["tracking_type"].to_list()
         self.trial_iterators = list(range(len(self.trial_list)))
 
-        # Extract session metadata
-        self.age, self.probe_type, self.area, self.recording_type = (
-            extract_session_metadata(session)
-        )
+        # Extract session metadata from sheet (authoritative source)
+        (
+            self.animal,
+            self.date,
+            self.age,
+            self.probe_type,
+            self.area,
+            self.recording_type,
+        ) = extract_session_metadata(session)
+
+        # Compute date_short from authoritative date
+        if len(self.date) == 10 and "-" in self.date:
+            # Date is in YYYY-MM-DD format, convert to YYMMDD
+            self.date_short = f"{self.date[2:4]}{self.date[5:7]}{self.date[8:10]}"
+        elif len(self.date) == 6 and self.date.isdigit():
+            # Date is already in YYMMDD format
+            self.date_short = self.date
+        else:
+            raise ValueError(
+                f"Unrecognized date format from sheet: {self.date}. "
+                "Expected YYYY-MM-DD (e.g., '2026-02-11') or YYMMDD (e.g., '260211')"
+            )
 
         # Configure sorting path based on recording type
         if self.recording_type == "nexus":
@@ -146,7 +176,7 @@ class ephys:  # noqa: N801
         """
 
         if self.analyzer is None:
-            self._load_ephys(from_disk=from_disk)
+            self.load_ephys(from_disk=from_disk)
 
         if unit_ids is not None:
             sorting = self.analyzer.sorting.select_units(unit_ids)
@@ -186,7 +216,7 @@ class ephys:  # noqa: N801
             where spike_train is an array of spike times in seconds
         """
         if self.analyzer is None:
-            self._load_ephys(keep_good_only=True, sparse=sparse)
+            self.load_ephys(keep_good_only=True, sparse=sparse)
 
         unit_spikes = {}
 
@@ -383,18 +413,22 @@ class ephys:  # noqa: N801
         channels: list | None = None,
         reload_flag=False,
         bandpass_filter: list[float, float] | None = None,
-        from_preprocessed=True,
+        from_disk=True,
     ):
         """
         Load LFP (Local Field Potential) data for specified trials.
+
+        Tries to load from cached pickle files first, then falls back to computing
+        from recordings. Automatically saves newly computed data to pickle cache.
 
         Args:
             trial_list: Trial indices to load (default: all)
             sampling_rate: Desired sampling rate in Hz (default: 1000)
             channels: Channel IDs to load (default: all channels)
-            reload_flag: If True, forces reloading of data
+            reload_flag: If True, forces recomputing from recordings
             bandpass_filter: Tuple of (min_freq, max_freq) for filtering
-            from_preprocessed: If True, loads from disk cache when available
+            from_disk: If True, uses sorted analyzer from disk (post-spike-sorting).
+                      If False, uses raw recordings only (pre-spike-sorting).
 
         Populates:
             self.lfp_data (list): LFP data for each trial at the given index
@@ -434,8 +468,8 @@ class ephys:  # noqa: N801
 
             lfp_path = self.recording_path / f"lfp_data_trial{trial_iterator}.pkl"
 
-            # Try to load from preprocessed data first (if enabled and file exists)
-            if from_preprocessed and lfp_path.exists():
+            # Try to load from cached pickle first
+            if lfp_path.exists():
                 try:
                     lfp_data = load_pickle(lfp_path)
 
@@ -447,7 +481,7 @@ class ephys:  # noqa: N801
                     if not is_valid:
                         raise ValueError(
                             f"Trial {trial_iterator}: {reason}. "
-                            "Use from_preprocessed=False to reload with new parameters."
+                            "Use reload_flag=True to recompute with new parameters."
                         )
 
                     self.lfp_data[trial_iterator] = lfp_data
@@ -463,18 +497,21 @@ class ephys:  # noqa: N801
                             lfp_data, channels
                         )
 
-                    print(f"Loaded preprocessed LFP data for trial {trial_iterator}")
+                    print(f"Loaded cached LFP data for trial {trial_iterator}")
                     continue
                 except Exception as e:
-                    print(
-                        f"Error loading preprocessed LFP for trial "
-                        f"{trial_iterator}: {e}"
-                    )
-                    print("Falling back to raw data loading...")
+                    print(f"Error loading cached LFP for trial {trial_iterator}: {e}")
+                    print("Recomputing from recordings...")
 
             # Load from raw data
             if self.analyzer is None:
-                self._load_ephys(sparse=False)
+                if from_disk:
+                    # Try to load sorted analyzer from disk
+                    self.load_ephys(sparse=False, from_disk=True)
+                else:
+                    # Load raw recordings only (no sorting needed)
+                    if not hasattr(self, "raw_recording") or self.raw_recording is None:
+                        self._load_raw_recordings()
 
             path = self.recording_path / self.trial_list[trial_iterator]
             self.log_loading_info(path, "lfp", True)
@@ -482,8 +519,13 @@ class ephys:  # noqa: N801
             temp_folder = self.recording_path / "temp"
 
             try:
+                # Use appropriate recording source (both are multi-segment)
+                recording = (
+                    self.analyzer.recording if self.analyzer else self.raw_recording
+                )
+
                 lfp_data = load_lfp_data(
-                    recording=self.raw_recording,
+                    recording=recording,
                     segment_index=trial_iterator,
                     sampling_rate=sampling_rate,
                     recording_type=self.recording_type,
@@ -494,37 +536,69 @@ class ephys:  # noqa: N801
 
                 self.lfp_data[trial_iterator] = lfp_data
 
-                # Save to disk for future loading (only if requested)
-                if from_preprocessed:
-                    try:
-                        save_pickle(lfp_data, lfp_path)
-                        file_size = lfp_path.stat().st_size
-                        print(
-                            f"Saved trial {trial_iterator} LFP data to "
-                            f"{lfp_path} ({file_size / 1e6:.2f} MB)"
-                        )
-                    except Exception as e:
-                        print(f"Warning: Could not save LFP data to disk: {e}")
+                # Save to cache for future loading
+                try:
+                    save_pickle(lfp_data, lfp_path)
+                    file_size = lfp_path.stat().st_size
+                    print(
+                        f"Saved trial {trial_iterator} LFP data to "
+                        f"{lfp_path} ({file_size / 1e6:.2f} MB)"
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not save LFP data to disk: {e}")
 
             except Exception as e:
                 print(f"Error loading LFP data for trial {trial_iterator}: {str(e)}")
                 self.lfp_data[trial_iterator] = None
+
+    def _load_raw_recordings(self):
+        """
+        Load raw recordings without sorting data (for pre-spike-sorting operations).
+
+        Creates a multi-segment recording where each segment corresponds to a trial,
+        matching the structure used by the analyzer.
+
+        Populates:
+            self.raw_recording: Multi-segment recording with one segment per trial
+        """
+        from .loaders.ephys_loader import load_trial_recordings
+
+        recording_list = load_trial_recordings(
+            recording_path=self.recording_path,
+            trial_list=self.trial_list,
+            trial_iterators=self.trial_iterators,
+            recording_type=self.recording_type,
+            probe_type=self.probe_type,
+            area=self.area,
+        )
+
+        # Create multi-segment recording (preserves segments, not concatenating time)
+        if len(recording_list) > 1:
+            import spikeinterface as si
+
+            self.raw_recording = si.append_recordings(recording_list)
+        else:
+            self.raw_recording = recording_list[0]
 
     def load_ttl(
         self,
         trial_list: int | list[int] | None = None,
         output_flag=True,
         reload_flag=False,
-        from_preprocessed=True,
+        from_disk=True,
     ):
         """
         Load TTL/sync data for specified trials from OpenEphys recording.
 
+        Tries to load from cached pickle files first, then falls back to computing
+        from recordings. Automatically saves newly computed data to pickle cache.
+
         Args:
             trial_list: Trial indices to load (default: all)
             output_flag: If True, print loading messages
-            reload_flag: If True, forces reloading of data
-            from_preprocessed: If True, loads from disk cache when available
+            reload_flag: If True, forces recomputing from recordings
+            from_disk: If True, uses sorted analyzer from disk (post-spike-sorting).
+                      If False, uses raw recordings only (pre-spike-sorting).
 
         Populates:
             self.sync_data (list): TTL data for each trial at the given index
@@ -544,46 +618,56 @@ class ephys:  # noqa: N801
 
             ttl_path = self.recording_path / f"ttl_data_trial{trial_iterator}.pkl"
 
-            # Try to load from preprocessed data first (if enabled and file exists)
-            if from_preprocessed and ttl_path.exists():
+            # Try to load from cached pickle first
+            if ttl_path.exists():
                 try:
                     ttl_data = load_pickle(ttl_path)
                     self.sync_data[trial_iterator] = ttl_data
                     if output_flag:
-                        print(
-                            f"Loaded preprocessed TTL data for trial {trial_iterator}"
-                        )
+                        print(f"Loaded cached TTL data for trial {trial_iterator}")
                     continue
                 except Exception as e:
                     if output_flag:
-                        print(f"Error loading TTL for trial {trial_iterator}: {e}")
-                        print("Falling back to raw data loading...")
+                        print(
+                            f"Error loading cached TTL for trial {trial_iterator}: {e}"
+                        )
+                        print("Recomputing from recordings...")
 
             # Load from raw data
             path = self.recording_path / self.trial_list[trial_iterator]
             self.log_loading_info(path, "TTL", output_flag)
 
-            # Ensure analyzer is loaded to get recording start time
+            # Get recording object to extract start time
             if not self.analyzer:
-                self._load_ephys(sparse=False)
+                if from_disk:
+                    # Try to load sorted analyzer from disk
+                    self.load_ephys(sparse=False, from_disk=True)
+                else:
+                    # Load raw recordings only (no sorting needed)
+                    if not hasattr(self, "raw_recording") or self.raw_recording is None:
+                        self._load_raw_recordings()
 
-            recording_start_time = self.analyzer.recording.get_start_time(
-                segment_index=trial_iterator
-            )
+            # Get recording start time from analyzer or raw recording
+            if self.analyzer:
+                recording_start_time = self.analyzer.recording.get_start_time(
+                    segment_index=trial_iterator
+                )
+            else:
+                # Raw recording is multi-segment, use segment_index
+                recording_start_time = self.raw_recording.get_start_time(
+                    segment_index=trial_iterator
+                )
 
             ttl_data = load_ttl_data(path, recording_start_time, self.recording_type)
             self.sync_data[trial_iterator] = ttl_data
 
-            # Save to cache if requested
-            if from_preprocessed:
-                try:
-                    save_pickle(ttl_data, ttl_path)
-                    if output_flag:
-                        print(
-                            f"Saved TTL data for trial {trial_iterator} to {ttl_path}"
-                        )
-                except Exception as e:
-                    print(f"Warning: Could not save TTL data to disk: {e}")
+            # Save to cache for future loading
+            try:
+                save_pickle(ttl_data, ttl_path)
+                if output_flag:
+                    print(f"Saved TTL data for trial {trial_iterator} to {ttl_path}")
+            except Exception as e:
+                print(f"Warning: Could not save TTL data to disk: {e}")
 
     def load_theta_phase(
         self,
@@ -592,18 +676,22 @@ class ephys:  # noqa: N801
         clip_value: int | None = 32000,
         output_flag: bool = True,
         reload_flag: bool = False,
-        from_preprocessed: bool = True,
+        from_disk: bool = True,
     ):
         """
         Load theta phase data and append to existing LFP data.
+
+        Tries to load from cached pickle files first, then falls back to computing
+        from LFP data. Automatically saves newly computed data to pickle cache.
 
         Args:
             trial_list: Trial indices to load (default: all)
             channels: Channel IDs to use (default: all available channels)
             clip_value: Clipping value for LFP (32000 for Axona, None for others)
             output_flag: If True, print loading messages
-            reload_flag: If True, forces reloading of data
-            from_preprocessed: If True, loads from disk cache when available
+            reload_flag: If True, forces recomputing from LFP data
+            from_disk: If True, uses sorted analyzer from disk (post-spike-sorting).
+                      If False, uses raw recordings only (pre-spike-sorting).
 
         Modifies:
             self.lfp_data[trial]: Adds 'theta_phase', 'cycle_numbers', 'theta_freqs'
@@ -645,8 +733,8 @@ class ephys:  # noqa: N801
                 self.recording_path / f"theta_phase_trial_{trial_iterator}.pkl"
             )
 
-            # Try to load from preprocessed data first (if enabled and file exists)
-            if from_preprocessed and theta_phase_path.exists():
+            # Try to load from cached pickle first
+            if theta_phase_path.exists():
                 try:
                     saved_theta_data = load_pickle(theta_phase_path)
 
@@ -654,9 +742,7 @@ class ephys:  # noqa: N801
                     if self.lfp_data[trial_iterator] is None:
                         if output_flag:
                             print(f"Loading LFP data for trial {trial_iterator}")
-                        self.load_lfp(
-                            trial_list=[trial_iterator], from_preprocessed=True
-                        )
+                        self.load_lfp(trial_list=[trial_iterator], from_disk=from_disk)
 
                     # Add theta phase data to LFP data
                     self.lfp_data[trial_iterator].update(saved_theta_data)
@@ -672,7 +758,7 @@ class ephys:  # noqa: N801
                             f" (channels {channels})" if channels else " (all channels)"
                         )
                         print(
-                            f"Loaded preprocessed theta phase data for trial "
+                            f"Loaded cached theta phase data for trial "
                             f"{trial_iterator}{channel_info}"
                         )
                     continue
@@ -680,10 +766,10 @@ class ephys:  # noqa: N801
                 except Exception as e:
                     if output_flag:
                         print(
-                            f"Error loading preprocessed theta phase for trial "
+                            f"Error loading cached theta phase for trial "
                             f"{trial_iterator}: {e}"
                         )
-                        print("Falling back to raw data processing...")
+                        print("Recomputing from LFP data...")
 
             # Load/process from raw data
             if output_flag:
@@ -694,9 +780,7 @@ class ephys:  # noqa: N801
                 if output_flag:
                     print(f"Loading LFP data for trial {trial_iterator}")
                 self.load_lfp(
-                    trial_list=[trial_iterator],
-                    channels=channels,
-                    from_preprocessed=True,
+                    trial_list=[trial_iterator], channels=channels, from_disk=from_disk
                 )
 
             try:
@@ -732,18 +816,17 @@ class ephys:  # noqa: N801
                 if output_flag:
                     print(f"Processed theta phase data for trial {trial_iterator}")
 
-                # Save theta phase data to disk for future loading if requested
-                if from_preprocessed:
-                    try:
-                        save_pickle(theta_data, theta_phase_path)
-                        file_size = theta_phase_path.stat().st_size
-                        if output_flag:
-                            print(
-                                f"Saved trial {trial_iterator} theta phase data to "
-                                f"{theta_phase_path} ({file_size / 1e6:.2f} MB)"
-                            )
-                    except Exception as e:
-                        print(f"Warning: Could not save theta phase data to disk: {e}")
+                # Save theta phase data to cache for future loading
+                try:
+                    save_pickle(theta_data, theta_phase_path)
+                    file_size = theta_phase_path.stat().st_size
+                    if output_flag:
+                        print(
+                            f"Saved trial {trial_iterator} theta phase data to "
+                            f"{theta_phase_path} ({file_size / 1e6:.2f} MB)"
+                        )
+                except Exception as e:
+                    print(f"Warning: Could not save theta phase data to disk: {e}")
 
             except Exception as e:
                 print(
@@ -811,8 +894,20 @@ class ephys:  # noqa: N801
 
     def _load_ephys(self, keep_good_only=False, sparse=True, from_disk=True):
         """
-        Backward-compatible alias for load_ephys(). New code should use load_ephys().
+        Backward-compatible alias for load_ephys().
+        New code should use load_ephys().
+
+        .. deprecated::
+            Use :meth:`load_ephys` instead.
+            This method will be removed in a future version.
         """
+        import warnings
+
+        warnings.warn(
+            "_load_ephys() is deprecated, use load_ephys() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.load_ephys(
             keep_good_only=keep_good_only, sparse=sparse, from_disk=from_disk
         )

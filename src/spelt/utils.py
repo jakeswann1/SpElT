@@ -104,9 +104,9 @@ def find_all_sessions(
 
     for i in session_list:
         session_df = sheet_inc[sheet_inc["Session"] == i]
-        animal = session_df["Animal"].values[0]
-        date_long = session_df["Date"].values[0]
-        path_to_session = f"{data_path}/{animal}/{date_long}"
+        sheet_path = session_df["path"].values[0]
+        # Use sheet's path column as source of truth, prepend data_path
+        path_to_session = f"{data_path}/{sheet_path.lstrip('/')}"
         session_dict[i] = path_to_session
 
     return session_dict
