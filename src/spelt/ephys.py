@@ -891,23 +891,3 @@ class ephys:  # noqa: N801
             recording_path=self.recording_path,
             sparse=sparse,
         )
-
-    def _load_ephys(self, keep_good_only=False, sparse=True, from_disk=True):
-        """
-        Backward-compatible alias for load_ephys().
-        New code should use load_ephys().
-
-        .. deprecated::
-            Use :meth:`load_ephys` instead.
-            This method will be removed in a future version.
-        """
-        import warnings
-
-        warnings.warn(
-            "_load_ephys() is deprecated, use load_ephys() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.load_ephys(
-            keep_good_only=keep_good_only, sparse=sparse, from_disk=from_disk
-        )
