@@ -271,7 +271,7 @@ class SessionManager:
         >>>
         >>> # Define a custom analysis function
         >>> def count_units(session_name, obj):
-        ...     obj._load_ephys(keep_good_only=True)
+        ...     obj.load_ephys(keep_good_only=True)
         ...     return {"session": session_name,"n_units": obj.analyzer.get_num_units()}
         >>>
         >>> # Run in parallel across all sessions
@@ -505,7 +505,7 @@ class SessionManager:
         Example:
             >>> # Normal usage - raises on error
             >>> def analyze_session(session_name, obj, min_units=5):
-            ...     obj._load_ephys(keep_good_only=True)
+            ...     obj.load_ephys(keep_good_only=True)
             ...     n_units = obj.analyzer.get_num_units()
             ...     if n_units < min_units:
             ...         return None
@@ -569,7 +569,7 @@ class SessionManager:
 
         Example:
             >>> def get_unit_count(session_name, obj):
-            ...     obj._load_ephys(keep_good_only=True)
+            ...     obj.load_ephys(keep_good_only=True)
             ...     return {
             ...         'session': session_name,
             ...         'animal': obj.animal,
@@ -641,7 +641,7 @@ def extract_unit_metrics(session_name: str, obj: ephys) -> dict[str, Any]:
 
     This is an example analysis function that can be used with SessionManager.map()
     """
-    obj._load_ephys(keep_good_only=True)
+    obj.load_ephys(keep_good_only=True)
     return {
         "session": session_name,
         "animal": obj.animal,

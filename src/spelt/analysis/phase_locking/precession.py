@@ -138,12 +138,15 @@ def cl_regression(x, phase, min_slope, max_slope):
     phase : array
         vector of phases at instances x in rad (values need NOT be
        restricted to the interval [0, 2pi)
-    [min_slope, max_slope]:  float
-        interval of slopes in which the best_slope is determined.
-        In contrast to linear regression, we MUST restrict the range of
-        slopes to some `useful' range determined by prior knowledge.
-         ATTENTION ! because this is a possible source of errors,
-        in particular for low numbers of data points.
+    min_slope : float
+        Lower bound of slope interval to search
+    max_slope : float
+        Upper bound of slope interval to search
+
+    Note: The function automatically handles parameter ordering - you can pass
+    bounds in either order (min < max or min > max) for backwards compatibility.
+    The search will be performed over the interval [lower_bound, upper_bound]
+    regardless of parameter order.
 
     Returns
     -------
@@ -171,8 +174,15 @@ def cl_regression(x, phase, min_slope, max_slope):
     if not isinstance(max_slope, (float, int)):
         raise ValueError("The max_slope parameter must be a scalar")
 
-    if min_slope < max_slope:
-        raise ValueError("min_slope < max_slope")
+    # Auto-correct parameter ordering for backwards compatibility
+    # Ensure lower_bound < upper_bound for fminbound
+    if min_slope > max_slope:
+        lower_bound, upper_bound = max_slope, min_slope
+    else:
+        lower_bound, upper_bound = min_slope, max_slope
+
+    if lower_bound == upper_bound:
+        raise ValueError("Slope bounds must define a non-zero interval")
 
     # We determine the value of the best `slope' using the MATLAB function fminbnd.
     # Please note that we have a minus sign in front of the
@@ -180,7 +190,9 @@ def cl_regression(x, phase, min_slope, max_slope):
     def func(opt_slope):
         return -goodness(x, phase, opt_slope)
 
-    slope, fval, lerr, nfunc = fminbound(func, min_slope, max_slope, full_output=True)
+    slope, fval, lerr, nfunc = fminbound(
+        func, lower_bound, upper_bound, full_output=True
+    )
     if lerr:
         print("Minimization did not converge")
 
@@ -213,12 +225,14 @@ def cl_corr(
     phase : array
         vector of phases at instances x in rad (values need NOT be
        restricted to the interval [0, 2pi)
-    [min_slope, max_slope]:  float
-        interval of slopes in which the best_slope is determined.
-        In contrast to linear regression, we MUST restrict the range of
-        slopes to some `useful' range determined by prior knowledge.
-         ATTENTION ! because this is a possible source of errors,
-        in particular for low numbers of data points.
+    min_slope : float
+        Lower bound of slope interval to search
+    max_slope : float
+        Upper bound of slope interval to search
+
+    Note: The function automatically handles parameter ordering - you can pass
+    bounds in either order (min < max or min > max) for backwards compatibility.
+
     ci : float
         level of confidence desired, e.g. .05 for 95 % confidence
     bootstrap_iter : int
@@ -235,11 +249,11 @@ def cl_corr(
         circ_lin_corr : float
             circular-linear correlation coefficient
         ci/pval : array
-            confidence interval
+            confidence interval or p-value
         slope : float
             slope of the fitted line in rad
-        phi0_deg : float
-            phase offset of the fitted line in deg
+        phi0 : float
+            phase offset of the fitted line in rad
         RR : float
             goodness of fit
     """

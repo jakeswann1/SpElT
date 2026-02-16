@@ -403,7 +403,7 @@ def load_session_spatial_data(session_name: str, obj: "ephys") -> dict:
 
         # Load analyzer for spike count data
         if obj.analyzer is None:
-            obj._load_ephys(from_disk=True)
+            obj.load_ephys(from_disk=True)
 
         # Create trial name to trial type mapping and trial index mapping
         trial_type_map = {}
