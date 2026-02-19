@@ -45,44 +45,61 @@ def _compute_ripple_envelope(
 
 
 def _find_candidate_events(
-    envelope: np.ndarray, threshold: float
+    envelope: np.ndarray, threshold: float, half_threshold: float
 ) -> list[tuple[int, int]]:
     """
-    Find continuous segments where envelope exceeds threshold.
+    Find candidate events where envelope exceeds threshold, then expand boundaries
+    outward to where the envelope drops below half_threshold.
+
+    Detection uses the full threshold; event boundaries are defined by the
+    half-threshold, following the convention of Csicsvari et al. and related work.
 
     Parameters
     ----------
     envelope : np.ndarray
         Envelope signal, shape (n_samples,)
     threshold : float
-        Threshold value
+        Detection threshold value (events must peak above this)
+    half_threshold : float
+        Boundary threshold (0.5 * threshold). Onset/offset are set to where
+        the envelope first drops below this value on either side of the peak.
 
     Returns
     -------
     list[tuple[int, int]]
-        List of (onset_idx, offset_idx) tuples
+        List of (onset_idx, offset_idx) tuples with half-threshold boundaries
     """
-    # Find where envelope exceeds threshold
+    n = len(envelope)
+
+    # Find where envelope exceeds detection threshold
     above_threshold = envelope > threshold
 
-    # Find transitions (onsets and offsets)
+    # Find transitions (onsets and offsets at detection threshold)
     transitions = np.diff(above_threshold.astype(int))
-
-    # Onsets: transitions from False to True (value = 1)
     onsets = np.where(transitions == 1)[0] + 1
-
-    # Offsets: transitions from True to False (value = -1)
     offsets = np.where(transitions == -1)[0] + 1
 
     # Handle edge cases
-    if len(above_threshold) > 0:
+    if n > 0:
         if above_threshold[0]:
             onsets = np.concatenate([[0], onsets])
         if above_threshold[-1]:
-            offsets = np.concatenate([offsets, [len(envelope)]])
+            offsets = np.concatenate([offsets, [n]])
 
-    # Pair onsets and offsets
-    events = list(zip(onsets, offsets))
+    # Expand each event boundary outward to half_threshold
+    events = []
+    for onset, offset in zip(onsets, offsets):
+        # Walk backward from onset until envelope drops below half_threshold
+        new_onset = onset
+        while new_onset > 0 and envelope[new_onset - 1] >= half_threshold:
+            new_onset -= 1
+
+        # Walk forward from offset until envelope drops below half_threshold
+        new_offset = offset
+        while new_offset < n and envelope[new_offset] >= half_threshold:
+            new_offset += 1
+
+        events.append((new_onset, new_offset))
 
     return events
 
@@ -198,6 +215,40 @@ def _filter_by_supra_ripple_ratio(
     return filtered_events
 
 
+def _filter_by_cycle_count(
+    events: list[tuple[int, int]], ripple_analytic: np.ndarray, min_cycles: float
+) -> list[tuple[int, int]]:
+    """
+    Filter events by minimum number of complete ripple cycles.
+
+    Cycle count is derived from the change in unwrapped instantaneous phase
+    across the event window, following the method of Csicsvari et al.
+
+    Parameters
+    ----------
+    events : list[tuple[int, int]]
+        List of (onset_idx, offset_idx) tuples
+    ripple_analytic : np.ndarray
+        Complex analytic signal (Hilbert transform of ripple-band filtered signal)
+    min_cycles : float
+        Minimum number of complete cycles required
+
+    Returns
+    -------
+    list[tuple[int, int]]
+        Filtered events
+    """
+    phase = np.unwrap(np.angle(ripple_analytic))
+
+    filtered_events = []
+    for onset, offset in events:
+        n_cycles = (phase[offset - 1] - phase[onset]) / (2 * np.pi)
+        if n_cycles >= min_cycles:
+            filtered_events.append((onset, offset))
+
+    return filtered_events
+
+
 def _find_event_peaks(
     events: list[tuple[int, int]], envelope: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -252,7 +303,8 @@ def _merge_close_events(
     merge_threshold_ms: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Merge ripples within merge_threshold, keeping first timestamp only.
+    Merge ripples within merge_threshold, keeping the highest-amplitude event
+    from each group.
 
     Parameters
     ----------
@@ -287,20 +339,25 @@ def _merge_close_events(
     # Convert merge threshold to samples
     merge_threshold_samples = int(merge_threshold_ms * fs / 1000)
 
-    # Find time differences between consecutive peaks
-    peak_diffs = np.diff(sorted_peaks)
+    # Group consecutive events whose peaks are within the merge threshold
+    groups = []
+    current_group = [0]
+    for i in range(1, len(sorted_peaks)):
+        if sorted_peaks[i] - sorted_peaks[i - 1] <= merge_threshold_samples:
+            current_group.append(i)
+        else:
+            groups.append(current_group)
+            current_group = [i]
+    groups.append(current_group)
 
-    # Find peaks that should be kept (first of each group)
-    keep_mask = np.ones(len(sorted_peaks), dtype=bool)
-
-    # Mark peaks that are too close to previous peak
-    keep_mask[1:] = peak_diffs > merge_threshold_samples
+    # From each group, keep the event with the highest peak amplitude
+    keep_indices = [grp[int(np.argmax(sorted_amplitudes[grp]))] for grp in groups]
 
     return (
-        sorted_peaks[keep_mask],
-        sorted_onsets[keep_mask],
-        sorted_offsets[keep_mask],
-        sorted_amplitudes[keep_mask],
+        sorted_peaks[keep_indices],
+        sorted_onsets[keep_indices],
+        sorted_offsets[keep_indices],
+        sorted_amplitudes[keep_indices],
     )
 
 
@@ -309,11 +366,12 @@ def detect_ripples(
     fs: float,
     ripple_band: tuple[float, float] = (125, 250),
     supra_ripple_band: tuple[float, float] = (250, 450),
-    envelope_threshold: float = 5.0,
+    envelope_threshold: float = 4.0,
     power_threshold: float = 1.5,
     supra_ripple_ratio: float = 2.0,
     min_duration_ms: float = 16.0,
-    merge_threshold_ms: float = 300.0,
+    min_ripple_cycles: float = 4.0,
+    merge_threshold_ms: float = 20.0,
 ) -> dict:
     """
     Detect ripple events in LFP signal using envelope-based thresholding.
@@ -322,13 +380,16 @@ def detect_ripples(
     1. Bandpass filter to ripple band (default 125-250 Hz)
     2. Compute Hilbert envelope for ripple band
     3. Compute Hilbert envelope for supra-ripple band (default 250-450 Hz)
-    4. Find candidate events where envelope > envelope_threshold * median envelope
+    4. Find candidate events where envelope > envelope_threshold * median envelope;
+       expand event boundaries to where envelope drops below 0.5 * threshold
     5. Filter by power: mean power during event > power_threshold * mean power
     6. Filter by supra-ripple ratio:
         ripple envelope > supra_ripple_ratio * supra-ripple envelope
     7. Exclude events shorter than min_duration_ms
-    8. Find peak (max envelope) within each event
-    9. Merge events within merge_threshold_ms (keep first only)
+    8. Filter by cycle count: event must contain >= min_ripple_cycles complete cycles
+       (derived from unwrapped instantaneous phase of the analytic signal)
+    9. Find peak (max envelope) within each event
+    10. Merge events within merge_threshold_ms (keep highest-amplitude peak)
 
     Parameters
     ----------
@@ -341,15 +402,17 @@ def detect_ripples(
     supra_ripple_band : tuple[float, float], optional
         Supra-ripple frequency band for noise rejection. Default: (250, 450)
     envelope_threshold : float, optional
-        Multiplier for median envelope. Default: 5.0
+        Multiplier for median envelope. Default: 4.0
     power_threshold : float, optional
         Multiplier for mean power. Default: 1.5
     supra_ripple_ratio : float, optional
         Required ratio of ripple/supra-ripple envelope. Default: 2.0
     min_duration_ms : float, optional
         Minimum ripple duration in milliseconds. Default: 16.0
+    min_ripple_cycles : float, optional
+        Minimum number of complete ripple cycles required per event. Default: 4.0
     merge_threshold_ms : float, optional
-        Merge ripples within this time window in milliseconds. Default: 300.0
+        Merge ripples within this time window in milliseconds. Default: 20.0
 
     Returns
     -------
@@ -377,18 +440,23 @@ def detect_ripples(
     # Step 3: Compute supra-ripple band envelope
     supra_ripple_envelope = _compute_ripple_envelope(lfp_signal, fs, supra_ripple_band)
 
-    # Step 4: Find candidate events using envelope threshold
+    # Step 4: Find candidate events using envelope threshold;
+    # boundaries expanded to half-threshold
     envelope_median = np.median(ripple_envelope)
     threshold = envelope_threshold * envelope_median
-    candidate_events = _find_candidate_events(ripple_envelope, threshold)
+    half_threshold = 0.5 * threshold
+    candidate_events = _find_candidate_events(
+        ripple_envelope, threshold, half_threshold
+    )
 
     # Step 5: Filter by duration
     events = _filter_by_duration(candidate_events, fs, min_duration_ms)
 
-    # Step 6: Filter by power
+    # Step 6: Filter by power; compute analytic signal here for later reuse
     filtered_signal = bandpass_filter_lfp(
         lfp_signal, fs, ripple_band[0], ripple_band[1]
     )
+    ripple_analytic = hilbert(filtered_signal)
     events = _filter_by_power(events, filtered_signal, power_threshold)
 
     # Step 7: Filter by supra-ripple ratio
@@ -396,12 +464,15 @@ def detect_ripples(
         events, ripple_envelope, supra_ripple_envelope, supra_ripple_ratio
     )
 
-    # Step 8: Find peaks within events
+    # Step 8: Filter by minimum cycle count (unwrapped phase method)
+    events = _filter_by_cycle_count(events, ripple_analytic, min_ripple_cycles)
+
+    # Step 9: Find peaks within events
     peak_indices, onsets, offsets, peak_amplitudes = _find_event_peaks(
         events, ripple_envelope
     )
 
-    # Step 9: Merge close events
+    # Step 10: Merge close events
     merged_peaks, merged_onsets, merged_offsets, merged_amplitudes = (
         _merge_close_events(
             peak_indices, onsets, offsets, peak_amplitudes, fs, merge_threshold_ms
