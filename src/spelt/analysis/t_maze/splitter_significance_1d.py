@@ -184,6 +184,112 @@ def check_minimum_activity(
     return choices_with_spikes >= min_choices
 
 
+def check_minimum_activity_in_sectors(
+    left_windows: list[tuple],
+    right_windows: list[tuple],
+    trial_spike_trains: dict[int, dict],
+    pos_bin_data: dict[int, dict],
+    unit_id: int,
+    sectors: list[int],
+    pos_header: dict,
+    bin_size: float,
+    min_choices: int = 5,
+) -> bool:
+    """
+    Check if a unit fires on at least min_choices trajectories while the animal
+    is within the specified sectors.
+
+    Unlike check_minimum_activity(), this gates on firing specifically within
+    the analysis sectors (e.g., the choice-point stem) rather than anywhere
+    along the full trajectory window. Cells that fire only in the goal arms
+    therefore do not pass the activity gate and are excluded from the analysis.
+
+    Parameters
+    ----------
+    left_windows, right_windows : list of tuples
+        (trial_idx, start_time, end_time) trajectory windows
+    trial_spike_trains : dict
+        {trial_idx: {unit_id: spike_times}}
+    pos_bin_data : dict
+        {trial_idx: dict} with keys 'pos_bin_idx', 'pos_sample_times',
+        'pos_sampling_rate'
+    unit_id : int
+        Unit ID to check
+    sectors : list of int
+        Target sectors (1-indexed, e.g., [6, 7] for choice-point stem)
+    pos_header : dict
+        Position header with spatial boundary information
+    bin_size : float
+        Spatial bin size in cm
+    min_choices : int
+        Minimum number of trajectories with sector-specific activity required
+
+    Returns
+    -------
+    bool
+        True if unit fires within the specified sectors on >= min_choices
+        trajectory windows
+    """
+    from spelt.analysis.t_maze.assign_sectors import bin_indices_to_sectors
+
+    choices_with_sector_activity = 0
+
+    for windows in (left_windows, right_windows):
+        for trial_idx, start_time, end_time in windows:
+            if trial_idx not in pos_bin_data or trial_idx not in trial_spike_trains:
+                continue
+            if unit_id not in trial_spike_trains[trial_idx]:
+                continue
+
+            bin_data = pos_bin_data[trial_idx]
+            pos_bin_idx = bin_data["pos_bin_idx"]
+            timestamps = bin_data["pos_sample_times"]
+
+            # Restrict to trajectory window
+            time_mask = (timestamps >= start_time) & (timestamps <= end_time)
+            if not np.any(time_mask):
+                continue
+
+            window_times = timestamps[time_mask]
+
+            # Extract x, y bin indices (handle tuple and array formats)
+            if isinstance(pos_bin_idx, tuple):
+                x_bins = pos_bin_idx[0][time_mask]
+                y_bins = pos_bin_idx[1][time_mask]
+            elif (
+                isinstance(pos_bin_idx, np.ndarray)
+                and pos_bin_idx.ndim == 2
+                and pos_bin_idx.shape[1] == 2
+            ):
+                x_bins = pos_bin_idx[time_mask, 1]
+                y_bins = pos_bin_idx[time_mask, 0]
+            else:
+                # Cannot resolve 2D position; fall back to full-window check
+                spikes = trial_spike_trains[trial_idx][unit_id]
+                if np.any((spikes >= start_time) & (spikes <= end_time)):
+                    choices_with_sector_activity += 1
+                continue
+
+            # Identify samples where animal is in the target sectors
+            sector_labels = bin_indices_to_sectors(x_bins, y_bins, pos_header, bin_size)
+            in_sector = np.isin(sector_labels, sectors) & ~np.isnan(sector_labels)
+
+            if not np.any(in_sector):
+                continue  # animal never visited target sectors in this trajectory
+
+            # Use the time envelope of sector visits as the spike check window
+            sector_times = window_times[in_sector]
+            spikes = trial_spike_trains[trial_idx][unit_id]
+            spikes_in_sector = spikes[
+                (spikes >= sector_times[0]) & (spikes <= sector_times[-1])
+            ]
+
+            if len(spikes_in_sector) > 0:
+                choices_with_sector_activity += 1
+
+    return choices_with_sector_activity >= min_choices
+
+
 def precompute_window_position_bins(
     windows: list[tuple],
     pos_bin_data: dict[int, dict],
@@ -610,12 +716,16 @@ def splitter_significance_1d(
     }
 
     for unit_id in unit_ids:
-        # Check minimum activity
-        has_activity = check_minimum_activity(
+        # Check minimum activity within the correlation sectors specifically
+        has_activity = check_minimum_activity_in_sectors(
             left_windows,
             right_windows,
             trial_spike_trains,
+            pos_bin_data,
             unit_id,
+            correlation_sectors,
+            pos_header,
+            bin_size,
             min_activity_choices,
         )
         results["has_minimum_activity"][unit_id] = has_activity
