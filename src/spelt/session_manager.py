@@ -635,6 +635,101 @@ class SessionManager:
 
 
 # Convenience functions for common analysis patterns
+
+
+def summarise_results(
+    results: list, extra_fields: list[str] | None = None, skipped_limit: int = 5
+) -> tuple[list, list, list]:
+    """
+    Print a processing summary for results from SessionManager.map() and return
+    categorised sub-lists.
+
+    Handles two result conventions:
+
+    **Status-based** (recommended): each result is a dict with ``status`` set to
+    ``'success'``, ``'skipped'``, or ``'error'``.
+
+    **Error-key based** (legacy): successful results are plain dicts; errors have
+    an ``'error'`` key (as produced by ``SessionManager.map(return_exceptions=True)``).
+
+    Parameters
+    ----------
+    results : list
+        Results returned by SessionManager.map().
+    extra_fields : list[str], optional
+        Numeric fields on success results to sum and print
+        (e.g. ``['n_cells', 'n_trials']``).
+    skipped_limit : int
+        Maximum number of skipped sessions to list individually.
+
+    Returns
+    -------
+    successful_results, skipped_results, failed_results : tuple[list, list, list]
+
+    """
+    has_status = any(isinstance(r, dict) and "status" in r for r in results)
+
+    if has_status:
+        successful_results = [
+            r for r in results if isinstance(r, dict) and r.get("status") == "success"
+        ]
+        skipped_results = [
+            r for r in results if isinstance(r, dict) and r.get("status") == "skipped"
+        ]
+        failed_results = [
+            r for r in results if isinstance(r, dict) and r.get("status") == "error"
+        ]
+    else:
+        successful_results = [
+            r for r in results if isinstance(r, dict) and "error" not in r
+        ]
+        skipped_results = []
+        failed_results = [r for r in results if not isinstance(r, dict) or "error" in r]
+
+    print(f"\n{'='*60}")
+    print("Processing Summary")
+    print(f"{'='*60}")
+    print(f"  Succeeded: {len(successful_results)}")
+    if skipped_results or has_status:
+        print(f"  Skipped:   {len(skipped_results)}")
+    print(f"  Failed:    {len(failed_results)}")
+    print(f"{'='*60}")
+
+    if failed_results:
+        print("\nFailed sessions:")
+        for r in failed_results:
+            if isinstance(r, dict):
+                print(f"  {r.get('session', '?')}: {r.get('error', 'Unknown error')}")
+            else:
+                print(f"  {r}")
+
+    if skipped_results:
+        n_show = min(skipped_limit, len(skipped_results))
+        suffix = f" (first {n_show})" if len(skipped_results) > n_show else ""
+        print(f"\nSkipped sessions{suffix}:")
+        for r in skipped_results[:n_show]:
+            print(f"  {r.get('session', '?')}: {r.get('message', 'No reason given')}")
+        if len(skipped_results) > n_show:
+            print(f"  ... and {len(skipped_results) - n_show} more")
+
+    if extra_fields and successful_results:
+        print()
+        for field in extra_fields:
+            values = [
+                r[field]
+                for r in successful_results
+                if isinstance(r, dict) and field in r
+            ]
+            if values:
+                total = sum(values)
+                print(
+                    f"  Total {field}: {total}"
+                    f"  (mean: {total / len(successful_results):.1f}/session)"
+                )
+
+    return successful_results, skipped_results, failed_results
+
+
 def extract_unit_metrics(session_name: str, obj: ephys) -> dict[str, Any]:
     """
     Extract basic unit count metrics for a session.
