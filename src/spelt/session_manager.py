@@ -324,6 +324,7 @@ class SessionManager:
         completed_counter=None,
         running_counter=None,
         lock=None,
+        memory_limit_gb: float | None = None,
     ):
         """Create a session processing function with progress tracking."""
 
@@ -333,9 +334,28 @@ class SessionManager:
                 with lock:
                     running_counter.value += 1
 
+            # Record baseline memory before processing
+            if memory_limit_gb is not None:
+                import os
+
+                import psutil
+
+                _proc = psutil.Process(os.getpid())
+                _mem_before = _proc.memory_info().rss
+
             try:
                 obj = self.get_ephys_object(session_name)
                 result = func(session_name, obj)
+
+                # Check memory delta against per-job budget
+                if memory_limit_gb is not None:
+                    mem_delta_gb = (_proc.memory_info().rss - _mem_before) / 1024**3
+                    if mem_delta_gb > memory_limit_gb:
+                        print(
+                            f"\n[memory warning] '{session_name}': job allocated"
+                            f" ~{mem_delta_gb:.1f} GB, exceeds per-job budget of"
+                            f" {memory_limit_gb:.1f} GB. Consider reducing n_jobs."
+                        )
 
                 # Mark as completed
                 if completed_counter is not None and lock is not None:
@@ -479,6 +499,7 @@ class SessionManager:
         show_progress: bool = True,
         filter_sessions: Callable[[str], bool] | None = None,
         return_exceptions: bool = False,
+        warn_memory: bool = True,
         **func_kwargs,
     ) -> list[Any]:
         """
@@ -493,6 +514,8 @@ class SessionManager:
                            Takes session_name and returns True to include it.
             return_exceptions: If True, return error info as dict instead of raising.
                              Error dicts include: session, error, error_type, traceback
+            warn_memory: If True (default), print a warning when a job's memory
+                        allocation exceeds total_RAM / n_jobs
             **func_kwargs: Additional keyword arguments to pass to func
 
         Returns:
@@ -528,9 +551,21 @@ class SessionManager:
         if func_kwargs:
             func = partial(func, **func_kwargs)
 
+        # Compute per-job memory budget for warnings (parallel only)
+        memory_limit_gb = None
+        if warn_memory and n_jobs != 1:
+            import os
+
+            import psutil
+
+            effective_n_jobs = os.cpu_count() if n_jobs == -1 else n_jobs
+            memory_limit_gb = psutil.virtual_memory().total / effective_n_jobs / 1024**3
+
         # Create session processor with error handling
         process_fn = self._create_session_processor(
-            func=func, return_exceptions=return_exceptions
+            func=func,
+            return_exceptions=return_exceptions,
+            memory_limit_gb=memory_limit_gb,
         )
 
         # Dispatch to serial or parallel processing
@@ -549,6 +584,7 @@ class SessionManager:
         n_jobs: int = 1,
         show_progress: bool = True,
         filter_sessions: Callable[[str], bool] | None = None,
+        warn_memory: bool = True,
         **func_kwargs,
     ) -> pd.DataFrame:
         """
@@ -562,6 +598,8 @@ class SessionManager:
             n_jobs: Number of parallel jobs
             show_progress: Whether to show progress bar
             filter_sessions: Optional function to filter sessions
+            warn_memory: If True (default), print a warning when a job's memory
+                        allocation exceeds total_RAM / n_jobs
             **func_kwargs: Additional keyword arguments to pass to func
 
         Returns:
@@ -585,6 +623,7 @@ class SessionManager:
             show_progress=show_progress,
             filter_sessions=filter_sessions,
             return_exceptions=False,
+            warn_memory=warn_memory,
             **func_kwargs,
         )
 
