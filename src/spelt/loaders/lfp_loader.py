@@ -93,7 +93,7 @@ def load_lfp_data(
             "timestamps": lfp_timestamps,  # Absolute time
             "timestamps_relative": lfp_timestamps_relative,  # Relative to trial start
             "sampling_rate": sampling_rate,
-            "channels": channels,
+            "channels": [int(c) for c in channels],
             "filter_range": bandpass_filter,
         }
 
@@ -216,7 +216,7 @@ def subset_lfp_channels(lfp_data: dict, requested_channels: list[int]) -> dict:
     # Create a copy and subset the data
     subset_data = lfp_data.copy()
     subset_data["data"] = lfp_data["data"][:, channel_indices]
-    subset_data["channels"] = [str(ch) for ch in requested_channels]
+    subset_data["channels"] = list(requested_channels)
 
     # Subset theta phase data if it exists
     if "theta_phase" in lfp_data:

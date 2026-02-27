@@ -14,6 +14,17 @@ from .frequency_power import (
     compute_band_power_from_ephys,
     compute_band_power_single_channel,
 )
+from .pac import (
+    GAMMA_BANDS,
+    compute_amplitude_envelope,
+    compute_mean_amplitude_profile,
+    compute_pac_depth_profile,
+    compute_pac_mi,
+    compute_pac_mvl,
+    compute_pac_mvl_normalised,
+    compute_pac_surrogates,
+    compute_pac_zscore,
+)
 from .peak_frequencies import find_peak_frequency, get_theta_frequencies
 from .phase import (
     compute_relative_phase,
@@ -57,4 +68,14 @@ __all__ = [
     "calc_instantaneous_info",
     # Ripple detection
     "detect_ripples",
+    # Phase-amplitude coupling
+    "GAMMA_BANDS",
+    "compute_amplitude_envelope",
+    "compute_mean_amplitude_profile",
+    "compute_pac_mi",
+    "compute_pac_mvl",
+    "compute_pac_mvl_normalised",
+    "compute_pac_surrogates",
+    "compute_pac_zscore",
+    "compute_pac_depth_profile",
 ]
