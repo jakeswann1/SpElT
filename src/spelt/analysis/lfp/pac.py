@@ -23,6 +23,7 @@ Typical usage
 """
 
 import numpy as np
+import pywt
 from scipy.signal import hilbert
 
 from .filtering import bandpass_filter_lfp
@@ -35,15 +36,223 @@ GAMMA_BANDS: dict[str, tuple[float, float]] = {
 }
 
 
+def morlet_n_cycles(
+    center_freq: float,
+    min_cycles: float = 3.0,
+    max_cycles: float = 8.0,
+    min_freq: float = 20.0,
+    max_freq: float = 150.0,
+) -> float:
+    """Linearly scale Morlet wavelet cycles with centre frequency.
+
+    Matches the convention used in ``nf_dcwt.m`` (Rawls 2023 / NeuroFreq
+    toolbox) and ``theta_phase_spectrogram.m``: the wavelet has
+    ``min_cycles`` cycles at ``min_freq`` and ``max_cycles`` at
+    ``max_freq``, scaling linearly between.  This trades frequency
+    resolution at low frequencies for better temporal resolution — the
+    inverse of using a fixed high cycle count.
+
+    Parameters
+    ----------
+    center_freq : float
+        Target centre frequency in Hz.
+    min_cycles, max_cycles : float
+        Cycle counts at ``min_freq`` and ``max_freq`` respectively.
+    min_freq, max_freq : float
+        Frequency range over which cycles scale linearly.
+
+    Returns
+    -------
+    float
+        Number of Morlet cycles at ``center_freq``.
+
+    Examples
+    --------
+    >>> morlet_n_cycles(20)   # 3.0
+    >>> morlet_n_cycles(150)  # 8.0
+    >>> morlet_n_cycles(37.5) # ≈ 3.67 (slow gamma centre)
+    >>> morlet_n_cycles(75)   # ≈ 5.12 (medium gamma centre)
+    >>> morlet_n_cycles(115)  # ≈ 6.65 (fast gamma centre)
+    """
+    t = float(np.clip((center_freq - min_freq) / (max_freq - min_freq), 0.0, 1.0))
+    return min_cycles + (max_cycles - min_cycles) * t
+
+
 # ---------------------------------------------------------------------------
 # Low-level building blocks
 # ---------------------------------------------------------------------------
 
 
-def compute_amplitude_envelope(
-    lfp: np.ndarray, fs: float, freq_min: float, freq_max: float
+def compute_amplitude_envelope_cwt(
+    lfp: np.ndarray, fs: float, center_freq: float, n_cycles: float = 7.0
 ) -> np.ndarray:
-    """Hilbert amplitude envelope of a bandpass-filtered LFP signal.
+    """Amplitude envelope via complex Morlet CWT (pywavelets).
+
+    Parameters
+    ----------
+    lfp : np.ndarray
+        1-D (n_samples,) or 2-D (n_samples, n_channels) LFP array.
+    fs : float
+        Sampling rate in Hz.
+    center_freq : float
+        Target frequency in Hz (typically (freq_min + freq_max) / 2).
+    n_cycles : float
+        Number of cycles in the Morlet wavelet (default 7). Controls the
+        time–frequency resolution trade-off: more cycles → finer frequency
+        resolution, coarser time resolution.  Mapped to pywt bandwidth
+        parameter as B = n_cycles² / 2 (wavelet ``cmor{B}-1.0``).
+
+    Returns
+    -------
+    np.ndarray
+        Amplitude envelope, same shape as *lfp*.
+    """
+    # cmor{B}-1.0: Gaussian envelope σ_t = sqrt(B/2).
+    # Setting B = n_cycles²/2 gives ~n_cycles oscillations within ±1σ.
+    wavelet = f"cmor{n_cycles ** 2 / 2.0:.4f}-1.0"
+    scale = pywt.scale2frequency(wavelet, 1.0, precision=8) * fs / center_freq
+
+    if lfp.ndim == 1:
+        coeffs, _ = pywt.cwt(
+            lfp.astype(float), [scale], wavelet, sampling_period=1.0 / fs
+        )
+        return np.abs(coeffs[0])
+
+    n_samples, n_chan = lfp.shape
+    envelope = np.empty((n_samples, n_chan), dtype=float)
+    for c in range(n_chan):
+        coeffs, _ = pywt.cwt(
+            lfp[:, c].astype(float), [scale], wavelet, sampling_period=1.0 / fs
+        )
+        envelope[:, c] = np.abs(coeffs[0])
+    return envelope
+
+
+def compute_amplitude_envelopes_cwt(
+    lfp: np.ndarray,
+    fs: float,
+    center_freqs: np.ndarray | list[float],
+    n_cycles: float | np.ndarray = 7.0,
+    gpu_batch_channels: int | None = None,
+) -> np.ndarray:
+    """Amplitude envelopes for multiple frequencies via the complex Morlet CWT.
+
+    When ``n_cycles`` is a scalar, all frequencies share one FFT of the
+    input signal (multi-scale CWT), which is substantially faster than
+    calling :func:`compute_amplitude_envelope_cwt` once per frequency.
+    GPU acceleration is used automatically when ``ptwt`` and CUDA are
+    available.
+
+    When ``n_cycles`` is an array (one value per frequency), each frequency
+    uses its own wavelet shape.  In this case the multi-scale optimisation
+    does not apply and one CWT call is made per (frequency, channel).  This
+    matches the linearly-scaled convention of ``nf_dcwt.m`` (Rawls 2023)
+    used in ``theta_phase_spectrogram.m``; use :func:`morlet_n_cycles` to
+    build the array.
+
+    Parameters
+    ----------
+    lfp : np.ndarray
+        1-D (n_samples,) or 2-D (n_samples, n_channels).
+    fs : float
+        Sampling rate in Hz.
+    center_freqs : array-like of float
+        Target centre frequencies in Hz.
+    n_cycles : float or np.ndarray
+        Morlet wavelet cycles.  Pass a scalar for a fixed cycle count
+        (default 7); pass an array of length ``len(center_freqs)`` for
+        per-frequency scaling (e.g. from :func:`morlet_n_cycles`).
+    gpu_batch_channels : int, optional
+        Channels per GPU batch (scalar n_cycles only).  Reduce if you hit
+        VRAM limits — each batch uses roughly
+        ``n_freqs × batch × n_samples × 8`` bytes of VRAM.
+
+    Returns
+    -------
+    np.ndarray
+        Shape (n_samples, n_freqs) for 1-D input, or
+        (n_samples, n_channels, n_freqs) for 2-D input.
+        dtype is float32 on the GPU path, float64 on the CPU path.
+    """
+    center_freqs = np.asarray(center_freqs, dtype=float)
+
+    # Per-frequency n_cycles: different wavelet per band; no multi-scale batching
+    if np.ndim(n_cycles) > 0:
+        n_cycles_arr = np.asarray(n_cycles, dtype=float)
+        one_d = lfp.ndim == 1
+        data = lfp[:, np.newaxis] if one_d else lfp
+        n_samples, n_chan = data.shape
+        n_freqs = len(center_freqs)
+        envelopes = np.empty((n_samples, n_chan, n_freqs), dtype=float)
+        for f_idx, (fc, nc) in enumerate(zip(center_freqs, n_cycles_arr)):
+            wavelet_f = f"cmor{nc ** 2 / 2.0:.4f}-1.0"
+            scale_f = pywt.scale2frequency(wavelet_f, 1.0, precision=8) * fs / fc
+            for c in range(n_chan):
+                coeffs, _ = pywt.cwt(
+                    data[:, c].astype(float),
+                    [scale_f],
+                    wavelet_f,
+                    sampling_period=1.0 / fs,
+                )
+                envelopes[:, c, f_idx] = np.abs(coeffs[0])
+        return envelopes[:, 0, :] if one_d else envelopes
+
+    # Scalar n_cycles: all frequencies share one wavelet → efficient multi-scale CWT
+    wavelet = f"cmor{n_cycles ** 2 / 2.0:.4f}-1.0"
+    ref = pywt.scale2frequency(wavelet, 1.0, precision=8) * fs
+    scales = ref / center_freqs  # (n_freqs,)
+
+    # GPU path: ptwt processes all channels × all scales in one CUDA kernel
+    try:
+        import ptwt  # noqa: PLC0415
+        import torch  # noqa: PLC0415
+
+        if torch.cuda.is_available():
+            one_d = lfp.ndim == 1
+            data = lfp[:, np.newaxis] if one_d else lfp  # (n_samples, n_chan)
+            n_samples, n_chan = data.shape
+            n_freqs = len(scales)
+            envelopes = np.empty((n_samples, n_chan, n_freqs), dtype=np.float32)
+            batch = gpu_batch_channels or n_chan
+            for start in range(0, n_chan, batch):
+                end = min(start + batch, n_chan)
+                chunk = torch.from_numpy(
+                    data[:, start:end].T.astype("float32")
+                ).cuda()  # (batch_ch, n_samples)
+                coeffs, _ = ptwt.cwt(chunk, scales, wavelet)
+                # coeffs: (n_freqs, batch_ch, n_samples) complex
+                envelopes[:, start:end, :] = coeffs.abs().permute(2, 1, 0).cpu().numpy()
+            return envelopes[:, 0, :] if one_d else envelopes
+    except ImportError:
+        pass
+
+    # CPU fallback: pywt, one channel at a time
+    if lfp.ndim == 1:
+        coeffs, _ = pywt.cwt(
+            lfp.astype(float), scales, wavelet, sampling_period=1.0 / fs
+        )
+        return np.abs(coeffs).T  # (n_samples, n_freqs)
+
+    n_samples, n_chan = lfp.shape
+    n_freqs = len(center_freqs)
+    envelopes = np.empty((n_samples, n_chan, n_freqs), dtype=float)
+    for c in range(n_chan):
+        coeffs, _ = pywt.cwt(
+            lfp[:, c].astype(float), scales, wavelet, sampling_period=1.0 / fs
+        )
+        envelopes[:, c, :] = np.abs(coeffs).T
+    return envelopes
+
+
+def compute_amplitude_envelope(
+    lfp: np.ndarray,
+    fs: float,
+    freq_min: float,
+    freq_max: float,
+    method: str = "wavelet",
+    n_cycles: float = 7.0,
+) -> np.ndarray:
+    """Amplitude envelope of a bandpass LFP signal.
 
     Parameters
     ----------
@@ -52,17 +261,26 @@ def compute_amplitude_envelope(
     fs : float
         Sampling rate in Hz.
     freq_min, freq_max : float
-        Bandpass filter edges in Hz.
+        Band edges in Hz.  The wavelet is centred at (freq_min + freq_max) / 2.
+    method : str
+        ``'wavelet'`` (default) — complex Morlet CWT at the band centre; or
+        ``'hilbert'`` — Butterworth bandpass filter followed by Hilbert transform.
+    n_cycles : float
+        Morlet wavelet cycles; only used when *method* = ``'wavelet'``.
 
     Returns
     -------
     np.ndarray
         Amplitude envelope, same shape as *lfp*.
     """
+    if method == "wavelet":
+        return compute_amplitude_envelope_cwt(
+            lfp, fs, (freq_min + freq_max) / 2.0, n_cycles=n_cycles
+        )
+    # 'hilbert' (legacy)
     filtered = bandpass_filter_lfp(lfp, fs=fs, freq_min=freq_min, freq_max=freq_max)
     if filtered.ndim == 1:
         return np.abs(hilbert(filtered))
-    # Process each channel; hilbert operates on 1-D arrays
     envelope = np.empty_like(filtered, dtype=float)
     for c in range(filtered.shape[1]):
         envelope[:, c] = np.abs(hilbert(filtered[:, c]))
@@ -314,6 +532,8 @@ def compute_pac_depth_profile(
     n_surrogates: int = 200,
     speed_mask: np.ndarray | None = None,
     rng: np.random.Generator | None = None,
+    amplitude_method: str = "wavelet",
+    n_cycles: float | str = "linear",
 ) -> list[dict]:
     """Compute PAC (MI, normalised MVL, z-score, preferred phase) for every
     combination of (channel, gamma_band) in a CA1 column LFP array.
@@ -337,6 +557,15 @@ def compute_pac_depth_profile(
         theta_phase and amplitude before computing PAC.
     rng : np.random.Generator, optional
         For reproducible surrogate generation.
+    amplitude_method : str
+        Passed to :func:`compute_amplitude_envelope`.  ``'wavelet'`` (default)
+        or ``'hilbert'``.
+    n_cycles : float or ``'linear'``
+        Morlet wavelet cycles; only used when *amplitude_method* = ``'wavelet'``.
+        ``'linear'`` (default) uses :func:`morlet_n_cycles` to scale cycles
+        linearly with the band centre frequency (3 cycles at 20 Hz → 8 at
+        150 Hz), matching the ``nf_dcwt.m`` / ``theta_phase_spectrogram.m``
+        convention.  Pass a float for a fixed cycle count.
 
     Returns
     -------
@@ -362,8 +591,12 @@ def compute_pac_depth_profile(
 
     results = []
     for band_name, (fmin, fmax) in gamma_bands.items():
+        fc = (fmin + fmax) / 2.0
+        nc = morlet_n_cycles(fc) if n_cycles == "linear" else float(n_cycles)
         # Compute amplitude envelope for all channels at once
-        envelope = compute_amplitude_envelope(lfp_column, fs, fmin, fmax)
+        envelope = compute_amplitude_envelope(
+            lfp_column, fs, fmin, fmax, method=amplitude_method, n_cycles=nc
+        )
 
         for ch in range(n_channels):
             amp = envelope[:, ch]

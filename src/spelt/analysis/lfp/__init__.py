@@ -17,6 +17,8 @@ from .frequency_power import (
 from .pac import (
     GAMMA_BANDS,
     compute_amplitude_envelope,
+    compute_amplitude_envelope_cwt,
+    compute_amplitude_envelopes_cwt,
     compute_mean_amplitude_profile,
     compute_pac_depth_profile,
     compute_pac_mi,
@@ -24,6 +26,7 @@ from .pac import (
     compute_pac_mvl_normalised,
     compute_pac_surrogates,
     compute_pac_zscore,
+    morlet_n_cycles,
 )
 from .peak_frequencies import find_peak_frequency, get_theta_frequencies
 from .phase import (
@@ -70,7 +73,10 @@ __all__ = [
     "detect_ripples",
     # Phase-amplitude coupling
     "GAMMA_BANDS",
+    "morlet_n_cycles",
     "compute_amplitude_envelope",
+    "compute_amplitude_envelope_cwt",
+    "compute_amplitude_envelopes_cwt",
     "compute_mean_amplitude_profile",
     "compute_pac_mi",
     "compute_pac_mvl",
