@@ -11,6 +11,7 @@ from .identify_choice_trajectories import (
     identify_choice_trajectories_from_sectors,
     identify_choice_trajectories_single_trial,
 )
+from .linearise_figure8 import figure8_loop_length_cm, linearise_figure8_position
 from .mask_rate_maps_by_sector import (
     mask_rate_map_by_sectors,
     mask_rate_maps_by_sectors,
@@ -29,6 +30,8 @@ __all__ = [
     "identify_choice_trajectories_from_ephys",
     "identify_choice_trajectories_from_sectors",
     "identify_choice_trajectories_single_trial",
+    "figure8_loop_length_cm",
+    "linearise_figure8_position",
     "mask_rate_map_by_sectors",
     "mask_rate_maps_by_sectors",
     "pad_rate_maps_to_match",
