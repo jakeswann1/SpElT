@@ -34,8 +34,7 @@ def visualize_place_fields(
 
     fig, ax1 = plt.subplots(figsize=(12, 8))
 
-    # Plot rate maps
-    ax1.plot(positions, rate_map, "k-", alpha=0.5, label="Original Rate")
+    # Plot rate map (smoothed only)
     ax1.plot(positions, smoothed_map, "b-", linewidth=2, label="Smoothed Rate")
 
     # Highlight fields if they exist
